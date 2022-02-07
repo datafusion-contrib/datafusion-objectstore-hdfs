@@ -27,8 +27,8 @@ use futures::{stream, StreamExt};
 use hdfs::hdfs::{FileStatus, HdfsErr, HdfsFile, HdfsFs};
 
 use datafusion::datasource::object_store::{
-    FileMeta, FileMetaStream, ListEntryStream, ObjectReader, ObjectReaderStream,
-    ObjectStore, SizedFile,
+    FileMeta, FileMetaStream, ListEntryStream, ObjectReader, ObjectReaderStream, ObjectStore,
+    SizedFile,
 };
 use datafusion::datasource::PartitionedFile;
 use datafusion::error::{DataFusionError, Result};
@@ -126,11 +126,7 @@ impl ObjectStore for HadoopFileSystem {
         get_files_in_dir(files).await
     }
 
-    async fn list_dir(
-        &self,
-        _prefix: &str,
-        _delimiter: Option<String>,
-    ) -> Result<ListEntryStream> {
+    async fn list_dir(&self, _prefix: &str, _delimiter: Option<String>) -> Result<ListEntryStream> {
         todo!()
     }
 
@@ -165,30 +161,21 @@ pub fn hadoop_object_reader_stream(
     fs: Arc<HadoopFileSystem>,
     files: Vec<String>,
 ) -> ObjectReaderStream {
-    Box::pin(
-        futures::stream::iter(files)
-            .map(move |f| Ok(hadoop_object_reader(fs.clone(), f))),
-    )
+    Box::pin(futures::stream::iter(files).map(move |f| Ok(hadoop_object_reader(fs.clone(), f))))
 }
 
 /// Helper method to convert a file location to a `LocalFileReader`
-pub fn hadoop_object_reader(
-    fs: Arc<HadoopFileSystem>,
-    file: String,
-) -> Arc<dyn ObjectReader> {
+pub fn hadoop_object_reader(fs: Arc<HadoopFileSystem>, file: String) -> Arc<dyn ObjectReader> {
     fs.file_reader(
         hadoop_unpartitioned_file(fs.clone(), file)
             .file_meta
             .sized_file,
     )
-        .expect("File not found")
+    .expect("File not found")
 }
 
 /// Helper method to fetch the file size and date at given path and create a `FileMeta`
-pub fn hadoop_unpartitioned_file(
-    fs: Arc<HadoopFileSystem>,
-    file: String,
-) -> PartitionedFile {
+pub fn hadoop_unpartitioned_file(fs: Arc<HadoopFileSystem>, file: String) -> PartitionedFile {
     let file_status = fs.inner.get_file_status(&file).ok().unwrap();
     PartitionedFile {
         file_meta: get_meta(file, file_status),
@@ -209,21 +196,11 @@ impl HadoopFileReader {
 
 #[async_trait]
 impl ObjectReader for HadoopFileReader {
-    async fn chunk_reader(
-        &self,
-        _start: u64,
-        _length: usize,
-    ) -> Result<Box<dyn AsyncRead>> {
-        todo!(
-            "implement once async file readers are available (arrow-rs#78, arrow-rs#111)"
-        )
+    async fn chunk_reader(&self, _start: u64, _length: usize) -> Result<Box<dyn AsyncRead>> {
+        todo!("implement once async file readers are available (arrow-rs#78, arrow-rs#111)")
     }
 
-    fn sync_chunk_reader(
-        &self,
-        start: u64,
-        length: usize,
-    ) -> Result<Box<dyn Read + Send + Sync>> {
+    fn sync_chunk_reader(&self, start: u64, length: usize) -> Result<Box<dyn Read + Send + Sync>> {
         let file = self.fs.open(&self.file.path)?;
         file.inner.seek(start);
         Ok(Box::new(file.take(length as u64)))
@@ -249,5 +226,201 @@ fn to_error(err: HdfsErr) -> std::io::Error {
             std::io::Error::new(std::io::ErrorKind::InvalidInput, err_str.as_str())
         }
         HdfsErr::Unknown => std::io::Error::new(std::io::ErrorKind::Other, "Unknown"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use datafusion::assert_batches_eq;
+    use datafusion::datasource::file_format::parquet::ParquetFormat;
+    use datafusion::datasource::file_format::FileFormat;
+    use datafusion::physical_plan::file_format::PhysicalPlanConfig;
+    use datafusion::physical_plan::ExecutionPlan;
+    use datafusion::prelude::ExecutionContext;
+    use hdfs::minidfs;
+    use hdfs::util::HdfsUtil;
+    use std::future::Future;
+    use std::pin::Pin;
+    use uuid::Uuid;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn read_small_batches_from_hdfs() -> Result<()> {
+        run_hdfs_test("alltypes_plain.parquet".to_string(), |fs, filename_hdfs| {
+            Box::pin(async move {
+                let projection = None;
+                let exec =
+                    get_hdfs_exec(Arc::new(fs), filename_hdfs.as_str(), &projection, 2, None)
+                        .await?;
+                let stream = exec.execute(0).await?;
+
+                let tt_batches = stream
+                    .map(|batch| {
+                        let batch = batch.unwrap();
+                        assert_eq!(11, batch.num_columns());
+                        assert_eq!(2, batch.num_rows());
+                    })
+                    .fold(0, |acc, _| async move { acc + 1i32 })
+                    .await;
+
+                assert_eq!(tt_batches, 4 /* 8/2 */);
+
+                // test metadata
+                assert_eq!(exec.statistics().num_rows, Some(8));
+                assert_eq!(exec.statistics().total_byte_size, Some(671));
+
+                Ok(())
+            })
+        })
+        .await
+    }
+
+    #[tokio::test]
+    async fn parquet_query() {
+        run_with_register_alltypes_parquet(|mut ctx| {
+            Box::pin(async move {
+                // NOTE that string_col is actually a binary column and does not have the UTF8 logical type
+                // so we need an explicit cast
+                let sql = "SELECT id, CAST(string_col AS varchar) FROM alltypes_plain";
+                let actual = ctx.sql(sql).await?.collect().await?;
+                let expected = vec![
+                    "+----+-----------------------------------------+",
+                    "| id | CAST(alltypes_plain.string_col AS Utf8) |",
+                    "+----+-----------------------------------------+",
+                    "| 4  | 0                                       |",
+                    "| 5  | 1                                       |",
+                    "| 6  | 0                                       |",
+                    "| 7  | 1                                       |",
+                    "| 2  | 0                                       |",
+                    "| 3  | 1                                       |",
+                    "| 0  | 0                                       |",
+                    "| 1  | 1                                       |",
+                    "+----+-----------------------------------------+",
+                ];
+
+                assert_batches_eq!(expected, &actual);
+
+                Ok(())
+            })
+        })
+        .await
+        .unwrap()
+    }
+
+    async fn get_hdfs_exec(
+        fs: Arc<HadoopFileSystem>,
+        file_name: &str,
+        projection: &Option<Vec<usize>>,
+        batch_size: usize,
+        limit: Option<usize>,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        let filename = file_name.to_string();
+        let format = ParquetFormat::default();
+        let file_schema = format
+            .infer_schema(hadoop_object_reader_stream(
+                fs.clone(),
+                vec![filename.clone()],
+            ))
+            .await
+            .expect("Schema inference");
+        let statistics = format
+            .infer_stats(hadoop_object_reader(fs.clone(), filename.clone()))
+            .await
+            .expect("Stats inference");
+        let file_groups = vec![vec![hadoop_unpartitioned_file(
+            fs.clone(),
+            filename.clone(),
+        )]];
+        let exec = format
+            .create_physical_plan(
+                PhysicalPlanConfig {
+                    object_store: fs.clone(),
+                    file_schema,
+                    file_groups,
+                    statistics,
+                    projection: projection.clone(),
+                    batch_size,
+                    limit,
+                    table_partition_cols: vec![],
+                },
+                &[],
+            )
+            .await?;
+        Ok(exec)
+    }
+
+    /// Run test after related data prepared
+    pub async fn run_hdfs_test<F>(filename: String, test: F) -> Result<()>
+    where
+        F: FnOnce(
+            HadoopFileSystem,
+            String,
+        ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>>,
+    {
+        let (hdfs, tmp_dir, dst_file) = setup_with_hdfs_data(&filename);
+
+        let result = test(hdfs, dst_file).await;
+
+        teardown(&tmp_dir);
+
+        result
+    }
+
+    /// Prepare hdfs parquet file by copying local parquet file to hdfs
+    fn setup_with_hdfs_data(filename: &str) -> (HadoopFileSystem, String, String) {
+        let uuid = Uuid::new_v4().to_string();
+        let tmp_dir = format!("/{}", uuid);
+
+        let dfs = minidfs::get_dfs();
+        let fs = dfs.get_hdfs().ok().unwrap();
+        assert!(fs.mkdir(&tmp_dir).is_ok());
+
+        // Source
+        let testdata = datafusion::test_util::parquet_test_data();
+        let src_path = format!("{}/{}", testdata, filename);
+
+        // Destination
+        let dst_path = format!("{}/{}", tmp_dir, filename);
+
+        // Copy to hdfs
+        assert!(HdfsUtil::copy_file_to_hdfs(dfs.clone(), &src_path, &dst_path).is_ok());
+
+        (
+            HadoopFileSystem::wrap(fs),
+            tmp_dir,
+            format!("{}{}", dfs.namenode_addr(), dst_path),
+        )
+    }
+
+    /// Cleanup testing files in hdfs
+    fn teardown(tmp_dir: &str) {
+        let dfs = minidfs::get_dfs();
+        let fs = dfs.get_hdfs().ok().unwrap();
+        assert!(fs.delete(&tmp_dir, true).is_ok());
+    }
+
+    /// Run query after table registered with parquet file on hdfs
+    pub async fn run_with_register_alltypes_parquet<F>(test_query: F) -> Result<()>
+    where
+        F: FnOnce(ExecutionContext) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>>
+            + Send
+            + 'static,
+    {
+        run_hdfs_test("alltypes_plain.parquet".to_string(), |fs, filename_hdfs| {
+            Box::pin(async move {
+                let mut ctx = ExecutionContext::new();
+                ctx.register_object_store(HDFS_SCHEME, Arc::new(fs));
+                let table_name = "alltypes_plain";
+                println!(
+                    "Register table {} with parquet file {}",
+                    table_name, filename_hdfs
+                );
+                ctx.register_parquet(table_name, &filename_hdfs).await?;
+
+                test_query(ctx).await
+            })
+        })
+        .await
     }
 }
