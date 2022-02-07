@@ -9,10 +9,11 @@ edition = "2021"
 chrono = { version = "0.4", default-features = false }
 async-trait = "0.1.41"
 futures = "0.3"
-datafusion = "^6.0.0"
+#datafusion = "^6.0.0"
+datafusion = { path = "../arrow-datafusion-pivot/datafusion" }
 fs-hdfs = "^0.1.4"
 
 [dev-dependencies]
 tokio = { version = "1.0", features = ["macros", "rt", "rt-multi-thread", "sync", "fs"] }
 uuid = { version = "^0.8", features = ["v4"] }
-arrow = { version = "6.4.0", features = ["prettyprint"] }
+arrow = { version = "8.0.0", features = ["prettyprint"] }

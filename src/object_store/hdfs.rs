@@ -234,7 +234,8 @@ mod tests {
     use datafusion::assert_batches_eq;
     use datafusion::datasource::file_format::parquet::ParquetFormat;
     use datafusion::datasource::file_format::FileFormat;
-    use datafusion::physical_plan::file_format::PhysicalPlanConfig;
+    use datafusion::execution::runtime_env::{RuntimeConfig, RuntimeEnv};
+    use datafusion::physical_plan::file_format::FileScanConfig;
     use datafusion::physical_plan::ExecutionPlan;
     use datafusion::prelude::ExecutionContext;
     use hdfs::minidfs;
@@ -249,11 +250,11 @@ mod tests {
     async fn read_small_batches_from_hdfs() -> Result<()> {
         run_hdfs_test("alltypes_plain.parquet".to_string(), |fs, filename_hdfs| {
             Box::pin(async move {
+                let runtime = Arc::new(RuntimeEnv::new(RuntimeConfig::new().with_batch_size(2))?);
                 let projection = None;
                 let exec =
-                    get_hdfs_exec(Arc::new(fs), filename_hdfs.as_str(), &projection, 2, None)
-                        .await?;
-                let stream = exec.execute(0).await?;
+                    get_hdfs_exec(Arc::new(fs), filename_hdfs.as_str(), &projection, None).await?;
+                let stream = exec.execute(0, runtime).await?;
 
                 let tt_batches = stream
                     .map(|batch| {
@@ -312,7 +313,6 @@ mod tests {
         fs: Arc<HadoopFileSystem>,
         file_name: &str,
         projection: &Option<Vec<usize>>,
-        batch_size: usize,
         limit: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let filename = file_name.to_string();
@@ -334,13 +334,12 @@ mod tests {
         )]];
         let exec = format
             .create_physical_plan(
-                PhysicalPlanConfig {
+                FileScanConfig {
                     object_store: fs.clone(),
                     file_schema,
                     file_groups,
                     statistics,
                     projection: projection.clone(),
-                    batch_size,
                     limit,
                     table_partition_cols: vec![],
                 },
@@ -410,7 +409,8 @@ mod tests {
         run_hdfs_test("alltypes_plain.parquet".to_string(), |fs, filename_hdfs| {
             Box::pin(async move {
                 let mut ctx = ExecutionContext::new();
-                ctx.register_object_store(HDFS_SCHEME, Arc::new(fs));
+                let object_store = Arc::new(fs);
+                ctx.register_object_store(object_store.clone().inner.url(), object_store);
                 let table_name = "alltypes_plain";
                 println!(
                     "Register table {} with parquet file {}",
