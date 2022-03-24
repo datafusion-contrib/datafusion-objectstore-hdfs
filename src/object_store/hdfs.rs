@@ -22,12 +22,13 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{NaiveDateTime, Utc};
-use datafusion::datasource::object_store::{
-    FileMeta, FileMetaStream, ListEntryStream, ObjectReader, ObjectReaderStream, ObjectStore,
-    SizedFile,
+use datafusion_common::Result;
+use datafusion_storage::{
+    object_store::{
+        FileMetaStream, ListEntryStream, ObjectReader, ObjectReaderStream, ObjectStore,
+    },
+    FileMeta, PartitionedFile, SizedFile,
 };
-use datafusion::datasource::PartitionedFile;
-use datafusion::error::Result;
 use futures::AsyncRead;
 use futures::{stream, StreamExt};
 use hdfs::hdfs::{get_hdfs_by_full_path, FileStatus, HdfsErr, HdfsFile, HdfsFs};
@@ -183,10 +184,9 @@ mod tests {
     use datafusion::assert_batches_eq;
     use datafusion::datasource::file_format::parquet::ParquetFormat;
     use datafusion::datasource::file_format::FileFormat;
-    use datafusion::execution::runtime_env::{RuntimeConfig, RuntimeEnv};
     use datafusion::physical_plan::file_format::FileScanConfig;
     use datafusion::physical_plan::ExecutionPlan;
-    use datafusion::prelude::ExecutionContext;
+    use datafusion::prelude::{SessionConfig, SessionContext};
     use hdfs::minidfs;
     use hdfs::util::HdfsUtil;
     use uuid::Uuid;
@@ -197,10 +197,11 @@ mod tests {
     async fn read_small_batches_from_hdfs() -> Result<()> {
         run_hdfs_test("alltypes_plain.parquet".to_string(), |filename_hdfs| {
             Box::pin(async move {
-                let runtime = Arc::new(RuntimeEnv::new(RuntimeConfig::new().with_batch_size(2))?);
+                let session_context =
+                    SessionContext::with_config(SessionConfig::new().with_batch_size(2));
                 let projection = None;
                 let exec = get_hdfs_exec(filename_hdfs.as_str(), &projection, None).await?;
-                let stream = exec.execute(0, runtime).await?;
+                let stream = exec.execute(0, session_context.task_ctx()).await?;
 
                 let tt_batches = stream
                     .map(|batch| {
@@ -334,14 +335,15 @@ mod tests {
     /// Run query after table registered with parquet file on hdfs
     pub async fn run_with_register_alltypes_parquet<F>(test_query: F) -> Result<()>
     where
-        F: FnOnce(ExecutionContext) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>>
+        F: FnOnce(SessionContext) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>>
             + Send
             + 'static,
     {
         run_hdfs_test("alltypes_plain.parquet".to_string(), |hdfs_file_uri| {
             Box::pin(async move {
-                let mut ctx = ExecutionContext::new();
-                ctx.register_object_store("hdfs", Arc::new(HadoopFileSystem {}));
+                let mut ctx = SessionContext::new();
+                ctx.runtime_env()
+                    .register_object_store("hdfs", Arc::new(HadoopFileSystem {}));
                 let table_name = "alltypes_plain";
                 println!(
                     "Register table {} with parquet file {}",
