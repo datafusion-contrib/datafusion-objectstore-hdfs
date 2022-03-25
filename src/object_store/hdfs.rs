@@ -21,13 +21,12 @@ use std::io::Read;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{NaiveDateTime, Utc};
-use datafusion_common::Result;
-use datafusion_storage::{
+use chrono::{DateTime, NaiveDateTime, Utc};
+use datafusion_data_access::{
     object_store::{
         FileMetaStream, ListEntryStream, ObjectReader, ObjectReaderStream, ObjectStore,
     },
-    FileMeta, PartitionedFile, SizedFile,
+    FileMeta, Result, SizedFile,
 };
 use futures::AsyncRead;
 use futures::{stream, StreamExt};
@@ -128,7 +127,7 @@ fn get_meta(path: String, file_status: FileStatus) -> FileMeta {
             path,
             size: file_status.len() as u64,
         },
-        last_modified: Some(chrono::DateTime::<Utc>::from_utc(
+        last_modified: Some(DateTime::<Utc>::from_utc(
             NaiveDateTime::from_timestamp(file_status.last_modified(), 0),
             Utc,
         )),
@@ -144,18 +143,15 @@ pub fn hadoop_object_reader_stream(files: Vec<String>) -> ObjectReaderStream {
 /// Helper method to convert a file location to a `LocalFileReader`
 pub fn hadoop_object_reader(file: String) -> Arc<dyn ObjectReader> {
     HadoopFileSystem
-        .file_reader(hadoop_unpartitioned_file(file).file_meta.sized_file)
+        .file_reader(hadoop_unpartitioned_file(file).sized_file)
         .expect("File not found")
 }
 
 /// Helper method to fetch the file size and date at given path and create a `FileMeta`
-pub fn hadoop_unpartitioned_file(file: String) -> PartitionedFile {
+pub fn hadoop_unpartitioned_file(file: String) -> FileMeta {
     let fs = get_hdfs_by_full_path(&file).expect("HdfsFs not found");
     let file_status = fs.get_file_status(&file).expect("File status not found");
-    PartitionedFile {
-        file_meta: get_meta(file, file_status),
-        partition_values: vec![],
-    }
+    get_meta(file, file_status)
 }
 
 fn to_error(err: HdfsErr) -> std::io::Error {
@@ -184,6 +180,8 @@ mod tests {
     use datafusion::assert_batches_eq;
     use datafusion::datasource::file_format::parquet::ParquetFormat;
     use datafusion::datasource::file_format::FileFormat;
+    use datafusion::datasource::listing::PartitionedFile;
+    use datafusion::error::Result;
     use datafusion::physical_plan::file_format::FileScanConfig;
     use datafusion::physical_plan::ExecutionPlan;
     use datafusion::prelude::{SessionConfig, SessionContext};
@@ -271,7 +269,7 @@ mod tests {
             .infer_stats(hadoop_object_reader(filename.clone()))
             .await
             .expect("Stats inference");
-        let file_groups = vec![vec![hadoop_unpartitioned_file(filename.clone())]];
+        let file_groups = vec![vec![unpartitioned_file(filename.clone())]];
         let exec = format
             .create_physical_plan(
                 FileScanConfig {
@@ -329,7 +327,7 @@ mod tests {
     fn teardown(tmp_dir: &str) {
         let dfs = minidfs::get_dfs();
         let fs = dfs.get_hdfs().ok().unwrap();
-        assert!(fs.delete(&tmp_dir, true).is_ok());
+        assert!(fs.delete(tmp_dir, true).is_ok());
     }
 
     /// Run query after table registered with parquet file on hdfs
@@ -355,5 +353,13 @@ mod tests {
             })
         })
         .await
+    }
+
+    /// Helper method to fetch the file size and date at given path and create a `FileMeta`
+    pub fn unpartitioned_file(file: String) -> PartitionedFile {
+        PartitionedFile {
+            file_meta: hadoop_unpartitioned_file(file),
+            partition_values: vec![],
+        }
     }
 }
