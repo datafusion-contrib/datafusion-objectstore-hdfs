@@ -185,9 +185,8 @@ mod tests {
     use datafusion::physical_plan::file_format::FileScanConfig;
     use datafusion::physical_plan::ExecutionPlan;
     use datafusion::prelude::{SessionConfig, SessionContext};
-    use hdfs::minidfs;
-    use hdfs::util::HdfsUtil;
-    use uuid::Uuid;
+
+    use objectstore_hdfs_testing::util::run_hdfs_test;
 
     use super::*;
 
@@ -285,49 +284,6 @@ mod tests {
             )
             .await?;
         Ok(exec)
-    }
-
-    /// Run test after related data prepared
-    pub async fn run_hdfs_test<F>(filename: String, test: F) -> Result<()>
-    where
-        F: FnOnce(String) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>>,
-    {
-        let (tmp_dir, dst_file) = setup_with_hdfs_data(&filename);
-
-        let result = test(dst_file).await;
-
-        teardown(&tmp_dir);
-
-        result
-    }
-
-    /// Prepare hdfs parquet file by copying local parquet file to hdfs
-    fn setup_with_hdfs_data(filename: &str) -> (String, String) {
-        let uuid = Uuid::new_v4().to_string();
-        let tmp_dir = format!("/{}", uuid);
-
-        let dfs = minidfs::get_dfs();
-        let fs = dfs.get_hdfs().ok().unwrap();
-        assert!(fs.mkdir(&tmp_dir).is_ok());
-
-        // Source
-        let testdata = datafusion::test_util::parquet_test_data();
-        let src_path = format!("{}/{}", testdata, filename);
-
-        // Destination
-        let dst_path = format!("{}/{}", tmp_dir, filename);
-
-        // Copy to hdfs
-        assert!(HdfsUtil::copy_file_to_hdfs(dfs.clone(), &src_path, &dst_path).is_ok());
-
-        (tmp_dir, format!("{}{}", dfs.namenode_addr(), dst_path))
-    }
-
-    /// Cleanup testing files in hdfs
-    fn teardown(tmp_dir: &str) {
-        let dfs = minidfs::get_dfs();
-        let fs = dfs.get_hdfs().ok().unwrap();
-        assert!(fs.delete(tmp_dir, true).is_ok());
     }
 
     /// Run query after table registered with parquet file on hdfs

@@ -15,8 +15,23 @@
 # specific language governing permissions and limitations
 # under the License.
 
-[workspace]
-members = [
-    "hdfs",
-    "hdfs-testing",
-]
+[package]
+name = "datafusion-objectstore-hdfs"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.59"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-trait = "0.1.41"
+chrono = { version = "0.4" }
+datafusion-data-access = { git = "https://github.com/yahoNanJing/arrow-datafusion.git", rev = "c7d0f0c73185e0ebb7d2339752e0d3e018001cdf" }
+fs-hdfs = "^0.1.5"
+futures = "0.3"
+
+[dev-dependencies]
+arrow = { version = "^11.0.0", features = ["prettyprint"] }
+datafusion = { git = "https://github.com/yahoNanJing/arrow-datafusion.git", branch = "dev" }
+objectstore-hdfs-testing = { path = "../hdfs-testing"}
+tokio = { version = "1.0", features = ["macros", "rt", "rt-multi-thread", "sync", "fs"] }

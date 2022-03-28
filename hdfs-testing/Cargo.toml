@@ -15,8 +15,14 @@
 # specific language governing permissions and limitations
 # under the License.
 
-[workspace]
-members = [
-    "hdfs",
-    "hdfs-testing",
-]
+[package]
+name = "objectstore-hdfs-testing"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+datafusion = { git = "https://github.com/yahoNanJing/arrow-datafusion.git", branch = "dev" }
+fs-hdfs = "0.1.5"
+uuid = { version = "0.8", features = ["v4"] }
