@@ -17,7 +17,7 @@
 
 //! Object store that represents the HDFS File System.
 use std::fmt::Debug;
-use std::io::Read;
+use std::io::{BufReader, Read};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -82,9 +82,10 @@ impl ObjectReader for HadoopFile {
     fn sync_chunk_reader(&self, start: u64, length: usize) -> Result<Box<dyn Read + Send + Sync>> {
         let reader = HadoopFileReader {
             file: self.file.clone(),
+            offset: start,
         };
-        reader.file.seek(start);
-        Ok(Box::new(reader.take(length as u64)))
+        self.file.seek(start);
+        Ok(Box::new(BufReader::new(reader.take(length as u64))))
     }
 
     fn length(&self) -> u64 {
@@ -94,13 +95,18 @@ impl ObjectReader for HadoopFile {
 
 struct HadoopFileReader {
     file: Arc<HdfsFile>,
+    offset: u64,
 }
 
 impl Read for HadoopFileReader {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let pos = self.file.pos().map_err(to_error)?;
         self.file
-            .read(buf)
-            .map(|read_len| read_len as usize)
+            .read_with_pos(self.offset as i64, buf)
+            .map(|read_len| {
+                self.offset += read_len as u64;
+                read_len as usize
+            })
             .map_err(to_error)
     }
 }
