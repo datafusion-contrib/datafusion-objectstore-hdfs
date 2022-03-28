@@ -6,8 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ballista = { git = "https://github.com/yahoNanJing/arrow-datafusion.git", rev = "144d7faa868c289719051fe62d8d8dc49e100093" }
-datafusion = { git = "https://github.com/yahoNanJing/arrow-datafusion.git", rev = "144d7faa868c289719051fe62d8d8dc49e100093", features = ["hdfs"] }
+ballista = { git = "https://github.com/yahoNanJing/arrow-datafusion.git", branch = "dev" }
+datafusion = { git = "https://github.com/yahoNanJing/arrow-datafusion.git", branch = "dev", features = ["hdfs"] }
 objectstore-hdfs-testing = { path = "../hdfs-testing"}
 futures = "0.3"
 num_cpus = "1.13.0"
