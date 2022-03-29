@@ -16,6 +16,7 @@
 // under the License.
 
 //! Object store that represents the HDFS File System.
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::io::{BufReader, Read};
 use std::sync::Arc;
@@ -137,6 +138,17 @@ fn get_meta(path: String, file_status: FileStatus) -> FileMeta {
             Utc,
         )),
     }
+}
+
+/// Get object stores with its corresponding schemes
+pub fn get_hadoop_object_stores() -> HashMap<String, Arc<dyn ObjectStore>> {
+    let mut ret: HashMap<String, Arc<dyn ObjectStore>> = HashMap::new();
+
+    let fs = Arc::new(HadoopFileSystem);
+    ret.insert(HDFS_SCHEME.to_string(), fs.clone());
+    ret.insert(VIEWFS_SCHEME.to_string(), fs);
+
+    ret
 }
 
 /// Create a stream of `ObjectReader` by converting each file in the `files` vector
