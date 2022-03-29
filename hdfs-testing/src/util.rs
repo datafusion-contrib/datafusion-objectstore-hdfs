@@ -27,7 +27,7 @@ use uuid::Uuid;
 /// Run test after related data prepared
 pub async fn run_hdfs_test<F>(filename: String, test: F) -> Result<()>
 where
-    F: FnOnce(String) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>>,
+    F: FnOnce(String) -> Pin<Box<dyn Future<Output = Result<()>> + 'static>>,
 {
     let (tmp_dir, dst_file) = setup_with_hdfs_data(&filename);
 
