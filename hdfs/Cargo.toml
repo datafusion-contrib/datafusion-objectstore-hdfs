@@ -26,12 +26,12 @@ rust-version = "1.59"
 [dependencies]
 async-trait = "0.1.41"
 chrono = { version = "0.4" }
-datafusion-data-access = { git = "https://github.com/yahoNanJing/arrow-datafusion.git", rev = "c7d0f0c73185e0ebb7d2339752e0d3e018001cdf" }
+datafusion-data-access = { git = "https://github.com/apache/arrow-datafusion.git", rev = "41b4e491663029f653e491b110d0b5e74d08a0b6" }
 fs-hdfs = "^0.1.5"
 futures = "0.3"
 
 [dev-dependencies]
 arrow = { version = "^11.0.0", features = ["prettyprint"] }
-datafusion = { git = "https://github.com/yahoNanJing/arrow-datafusion.git", branch = "dev", features = ["hdfs"] }
+datafusion = { git = "https://github.com/apache/arrow-datafusion.git", rev = "41b4e491663029f653e491b110d0b5e74d08a0b6" }
 objectstore-hdfs-testing = { path = "../hdfs-testing"}
 tokio = { version = "1.0", features = ["macros", "rt", "rt-multi-thread", "sync", "fs"] }

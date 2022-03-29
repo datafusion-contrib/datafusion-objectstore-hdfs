@@ -23,6 +23,6 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-datafusion = { git = "https://github.com/yahoNanJing/arrow-datafusion.git", branch = "dev", features = ["hdfs"] }
+datafusion = { git = "https://github.com/apache/arrow-datafusion.git", rev = "41b4e491663029f653e491b110d0b5e74d08a0b6" }
 fs-hdfs = "0.1.5"
 uuid = { version = "0.8", features = ["v4"] }

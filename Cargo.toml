@@ -18,6 +18,5 @@
 [workspace]
 members = [
     "hdfs",
-    "hdfs-examples",
     "hdfs-testing",
 ]

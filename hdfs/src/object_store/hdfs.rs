@@ -100,7 +100,6 @@ struct HadoopFileReader {
 
 impl Read for HadoopFileReader {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let pos = self.file.pos().map_err(to_error)?;
         self.file
             .read_with_pos(self.offset as i64, buf)
             .map(|read_len| {
@@ -229,7 +228,7 @@ mod tests {
 
     #[tokio::test]
     async fn parquet_query() {
-        run_with_register_alltypes_parquet(|mut ctx| {
+        run_with_register_alltypes_parquet(|ctx| {
             Box::pin(async move {
                 // NOTE that string_col is actually a binary column and does not have the UTF8 logical type
                 // so we need an explicit cast
@@ -301,7 +300,7 @@ mod tests {
     {
         run_hdfs_test("alltypes_plain.parquet".to_string(), |hdfs_file_uri| {
             Box::pin(async move {
-                let mut ctx = SessionContext::new();
+                let ctx = SessionContext::new();
                 ctx.runtime_env()
                     .register_object_store("hdfs", Arc::new(HadoopFileSystem {}));
                 let table_name = "alltypes_plain";
