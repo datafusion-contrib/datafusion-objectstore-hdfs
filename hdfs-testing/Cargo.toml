@@ -24,5 +24,5 @@ edition = "2021"
 
 [dependencies]
 datafusion = { git = "https://github.com/yahoNanJing/arrow-datafusion.git", branch = "issue-2072" }
-fs-hdfs = "0.1.5"
+fs-hdfs = "0.1.6"
 uuid = { version = "0.8", features = ["v4"] }
