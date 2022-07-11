@@ -16,13 +16,20 @@
 # under the License.
 
 [package]
-name = "objectstore-hdfs-testing"
+name = "datafusion-objectstore-hdfs-testing"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-datafusion = { git = "https://github.com/yahoNanJing/arrow-datafusion.git", branch = "issue-2072" }
-fs-hdfs = "0.1.6"
-uuid = { version = "0.8", features = ["v4"] }
+datafusion = { git = "https://github.com/yahoNanJing/arrow-datafusion.git", branch = "issue-2905" }
+fs-hdfs = "^0.1.9"
+uuid = { version = "1.0", features = ["v4"] }
+
+[dev-dependencies]
+arrow = { version = "18.0.0", features = ["prettyprint"] }
+datafusion-objectstore-hdfs = { path = "../hdfs" }
+futures = "0.3"
+object_store = "0.3.0"
+tokio = { version = "1.18", features = ["macros", "rt", "rt-multi-thread", "sync", "fs"] }

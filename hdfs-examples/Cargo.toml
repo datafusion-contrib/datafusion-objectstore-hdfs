@@ -6,11 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ballista = { git = "https://github.com/yahoNanJing/arrow-datafusion.git", branch = "issue-2072", features = ["standalone"] }
-datafusion = { git = "https://github.com/yahoNanJing/arrow-datafusion.git", branch = "issue-2072", features = ["hdfs"] }
-objectstore-hdfs-testing = { path = "../hdfs-testing"}
+ballista = { git = "https://github.com/yahoNanJing/arrow-ballista.git", branch = "dissue-2905", features = ["standalone", "hdfs"] }
+datafusion = { git = "https://github.com/yahoNanJing/arrow-datafusion.git", branch = "issue-2905" }
+datafusion-objectstore-hdfs-testing = { path = "../hdfs-testing"}
 futures = "0.3"
 num_cpus = "1.13.0"
-prost = "0.9"
-tokio = { version = "1.0", features = ["macros", "rt", "rt-multi-thread", "sync", "parking_lot"] }
-tonic = "0.6"
+prost = "0.10"
+tokio = { version = "1.18", features = ["macros", "rt", "rt-multi-thread", "sync", "parking_lot"] }
+tonic = "0.7"

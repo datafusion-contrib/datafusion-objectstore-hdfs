@@ -24,14 +24,10 @@ rust-version = "1.59"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-trait = "0.1.41"
+async-trait = "0.1.53"
+bytes = "1.0"
 chrono = { version = "0.4" }
 fs-hdfs = "^0.1.9"
 futures = "0.3"
 object_store = "0.3.0"
-
-[dev-dependencies]
-arrow = { version = "^11.0.0", features = ["prettyprint"] }
-datafusion = { git = "https://github.com/yahoNanJing/arrow-datafusion.git", branch = "issue-2072" }
-objectstore-hdfs-testing = { path = "../hdfs-testing"}
-tokio = { version = "1.0", features = ["macros", "rt", "rt-multi-thread", "sync", "fs"] }
+tokio = { version = "1.18", features = ["macros", "rt", "rt-multi-thread", "sync", "parking_lot"] }
