@@ -402,10 +402,14 @@ where
     F: FnOnce() -> Result<T> + Send + 'static,
     T: Send + 'static,
 {
+    #[cfg(feature = "try_spawn_blocking")]
     match tokio::runtime::Handle::try_current() {
         Ok(runtime) => runtime.spawn_blocking(f).await?,
         Err(_) => f(),
     }
+
+    #[cfg(not(feature = "try_spawn_blocking"))]
+    f()
 }
 
 fn to_error(err: HdfsErr) -> Error {
