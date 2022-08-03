@@ -110,6 +110,8 @@ impl ObjectStore for HadoopFileSystem {
 
             file.write(bytes.as_ref()).map_err(to_error)?;
 
+            file.close().map_err(to_error)?;
+
             Ok(())
         })
         .await
@@ -132,6 +134,8 @@ impl ObjectStore for HadoopFileSystem {
                 "Read path {} with expected size {} and actual size {}",
                 &location, to_read, read
             );
+
+            file.close().map_err(to_error)?;
 
             Ok(buf.into())
         })
@@ -159,6 +163,8 @@ impl ObjectStore for HadoopFileSystem {
                 "Read path {} from {} with expected size {} and actual size {}",
                 &location, range.start, to_read, read
             );
+
+            file.close().map_err(to_error)?;
 
             Ok(buf.into())
         })
