@@ -31,5 +31,5 @@ uuid = { version = "1.0", features = ["v4"] }
 arrow = { version = "18.0.0", features = ["prettyprint"] }
 datafusion-objectstore-hdfs = { path = "../hdfs" }
 futures = "0.3"
-object_store = "0.3.0"
+object_store = "0.4.0"
 tokio = { version = "1.18", features = ["macros", "rt", "rt-multi-thread", "sync", "fs"] }
