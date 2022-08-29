@@ -28,11 +28,12 @@ use bytes::Bytes;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use futures::{stream::BoxStream, StreamExt};
 use hdfs::err::HdfsErr::FileNotFound;
-use hdfs::hdfs::{get_hdfs_by_full_path, FileStatus, HdfsErr, HdfsFs};
+use hdfs::hdfs::{get_hdfs_by_full_path, FileStatus, HdfsErr, HdfsFile, HdfsFs};
 use hdfs::walkdir::HdfsWalkDir;
-use object_store::path;
 use object_store::path::Path;
+use object_store::{path, MultipartId};
 use object_store::{Error, GetResult, ListResult, ObjectMeta, ObjectStore, Result};
+use tokio::io::AsyncWrite;
 
 /// scheme for HDFS File System
 pub static HDFS_SCHEME: &str = "hdfs";
@@ -84,6 +85,24 @@ impl HadoopFileSystem {
             "".to_owned()
         }
     }
+
+    fn read_range(range: &Range<usize>, file: &HdfsFile) -> Result<Bytes> {
+        let to_read = range.end - range.start;
+        let mut buf = vec![0; to_read];
+        let read = file
+            .read_with_pos(range.start as i64, buf.as_mut_slice())
+            .map_err(to_error)?;
+        assert_eq!(
+            to_read as i32,
+            read,
+            "Read path {} from {} with expected size {} and actual size {}",
+            file.path(),
+            range.start,
+            to_read,
+            read
+        );
+        Ok(buf.into())
+    }
 }
 
 impl Display for HadoopFileSystem {
@@ -115,6 +134,17 @@ impl ObjectStore for HadoopFileSystem {
             Ok(())
         })
         .await
+    }
+
+    async fn put_multipart(
+        &self,
+        _location: &Path,
+    ) -> Result<(MultipartId, Box<dyn AsyncWrite + Unpin + Send>)> {
+        todo!()
+    }
+
+    async fn abort_multipart(&self, _location: &Path, _multipart_id: &MultipartId) -> Result<()> {
+        todo!()
     }
 
     async fn get(&self, location: &Path) -> object_store::Result<GetResult> {
@@ -152,23 +182,33 @@ impl ObjectStore for HadoopFileSystem {
 
         maybe_spawn_blocking(move || {
             let file = hdfs.open(&location).map_err(to_error)?;
-
-            let to_read = range.end - range.start;
-            let mut buf = vec![0; to_read];
-            let read = file
-                .read_with_pos(range.start as i64, buf.as_mut_slice())
-                .map_err(to_error)?;
-            assert_eq!(
-                to_read as i32, read,
-                "Read path {} from {} with expected size {} and actual size {}",
-                &location, range.start, to_read, read
-            );
-
+            let buf = Self::read_range(&range, &file)?;
             file.close().map_err(to_error)?;
 
-            Ok(buf.into())
+            Ok(buf)
         })
         .await
+    }
+
+    async fn get_ranges(&self, location: &Path, ranges: &[Range<usize>]) -> Result<Vec<Bytes>> {
+        let hdfs = self.hdfs.clone();
+        let location = HadoopFileSystem::path_to_filesystem(location);
+
+        let rs = ranges.to_vec();
+
+        let result = maybe_spawn_blocking(move || {
+            let file = hdfs.open(&location).map_err(to_error)?;
+
+            let result = rs
+                .into_iter()
+                .map(|r| Self::read_range(&r, &file))
+                .collect();
+
+            file.close().map_err(to_error)?;
+            result
+        })
+        .await;
+        result
     }
 
     async fn head(&self, location: &Path) -> object_store::Result<ObjectMeta> {
@@ -295,7 +335,6 @@ impl ObjectStore for HadoopFileSystem {
             }
 
             Ok(ListResult {
-                next_token: None,
                 common_prefixes: common_prefixes.into_iter().collect(),
                 objects,
             })
