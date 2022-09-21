@@ -196,7 +196,7 @@ impl ObjectStore for HadoopFileSystem {
 
         let rs = ranges.to_vec();
 
-        let result = maybe_spawn_blocking(move || {
+        maybe_spawn_blocking(move || {
             let file = hdfs.open(&location).map_err(to_error)?;
 
             let result = rs
@@ -207,8 +207,7 @@ impl ObjectStore for HadoopFileSystem {
             file.close().map_err(to_error)?;
             result
         })
-        .await;
-        result
+        .await
     }
 
     async fn head(&self, location: &Path) -> object_store::Result<ObjectMeta> {
