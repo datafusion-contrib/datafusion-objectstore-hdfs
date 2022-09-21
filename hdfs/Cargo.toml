@@ -19,9 +19,17 @@
 name = "datafusion-objectstore-hdfs"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.59"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "A hdfs object store implemented the object store"
+authors = ["Yanghong Zhong <nju_yaho@apache.org>"]
+license = "Apache-2.0"
+readme = "../README.md"
+keywords = [
+    "hdfs",
+    "hadoop",
+    "store",
+]
+repository = "https://github.com/datafusion-contrib/datafusion-objectstore-hdfs"
 
 [features]
 default = ["try_spawn_blocking"]
