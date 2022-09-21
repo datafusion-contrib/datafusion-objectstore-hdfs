@@ -18,6 +18,6 @@
 [workspace]
 members = [
     "hdfs",
-    "hdfs-examples",
+#    "hdfs-examples",
     "hdfs-testing",
 ]

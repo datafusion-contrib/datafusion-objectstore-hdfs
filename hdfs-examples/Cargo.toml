@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 ballista = { git = "https://github.com/yahoNanJing/arrow-ballista.git", branch = "dissue-2905", features = ["standalone", "hdfs"] }
-datafusion = { git = "https://github.com/yahoNanJing/arrow-datafusion.git", branch = "issue-2905" }
+datafusion = "12.0.0"
 datafusion-objectstore-hdfs-testing = { path = "../hdfs-testing"}
 futures = "0.3"
 num_cpus = "1.13.0"

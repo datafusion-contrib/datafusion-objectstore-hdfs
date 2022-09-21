@@ -80,18 +80,18 @@ mod tests {
                 let sql = "SELECT id, CAST(string_col AS varchar) FROM alltypes_plain";
                 let actual = ctx.sql(sql).await?.collect().await?;
                 let expected = vec![
-                    "+----+-----------------------------------------+",
-                    "| id | CAST(alltypes_plain.string_col AS Utf8) |",
-                    "+----+-----------------------------------------+",
-                    "| 4  | 0                                       |",
-                    "| 5  | 1                                       |",
-                    "| 6  | 0                                       |",
-                    "| 7  | 1                                       |",
-                    "| 2  | 0                                       |",
-                    "| 3  | 1                                       |",
-                    "| 0  | 0                                       |",
-                    "| 1  | 1                                       |",
-                    "+----+-----------------------------------------+",
+                    "+----+---------------------------+",
+                    "| id | alltypes_plain.string_col |",
+                    "+----+---------------------------+",
+                    "| 4  | 0                         |",
+                    "| 5  | 1                         |",
+                    "| 6  | 0                         |",
+                    "| 7  | 1                         |",
+                    "| 2  | 0                         |",
+                    "| 3  | 1                         |",
+                    "| 0  | 0                         |",
+                    "| 1  | 1                         |",
+                    "+----+---------------------------+",
                 ];
 
                 assert_batches_eq!(expected, &actual);
@@ -119,6 +119,7 @@ mod tests {
             object_meta: file_meta.clone(),
             partition_values: vec![],
             range: None,
+            extensions: None,
         };
 
         let store = store as _;
