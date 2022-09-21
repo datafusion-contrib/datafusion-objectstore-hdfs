@@ -24,7 +24,7 @@ rust-version = "1.59"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = []
+default = ["try_spawn_blocking"]
 # Used for trying to spawn a blocking thread for implementing each object store interface when running in a tokio runtime
 try_spawn_blocking = []
 
