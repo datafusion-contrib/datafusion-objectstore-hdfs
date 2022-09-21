@@ -9,7 +9,7 @@ readme = "../README.md"
 repository = "https://github.com/datafusion-contrib/datafusion-objectstore-hdfs"
 
 [dependencies]
-ballista = { git = "https://github.com/yahoNanJing/arrow-ballista.git", branch = "dissue-2905", features = ["standalone", "hdfs"] }
+ballista = { git = "https://github.com/yahoNanJing/arrow-ballista.git", branch = "issue-259", features = ["standalone", "hdfs"] }
 datafusion = "12.0.0"
 datafusion-objectstore-hdfs-testing = { path = "../hdfs-testing"}
 futures = "0.3"
