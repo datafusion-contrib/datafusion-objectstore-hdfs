@@ -8,10 +8,15 @@ license = "Apache-2.0"
 readme = "../README.md"
 repository = "https://github.com/datafusion-contrib/datafusion-objectstore-hdfs"
 
+[features]
+default = ["hdfs"]
+hdfs = ["ballista/hdfs", "datafusion-objectstore-hdfs-testing/hdfs"]
+hdfs3 = ["ballista/hdfs3", "datafusion-objectstore-hdfs-testing/hdfs3"]
+
 [dependencies]
-ballista = { git = "https://github.com/apache/arrow-ballista.git", rev = "5c2420c9b3f3ba1b4c363b2fd93309c93ac851fd", features = ["standalone", "hdfs"] }
+ballista = { git = "https://github.com/yahoNanJing/arrow-ballista.git", branch = "issue-419", features = ["standalone"] }
 datafusion = "13.0.0"
-datafusion-objectstore-hdfs-testing = { path = "../hdfs-testing"}
+datafusion-objectstore-hdfs-testing = { path = "../hdfs-testing", default-features = false }
 futures = "0.3"
 num_cpus = "1.13.0"
 prost = "0.10"

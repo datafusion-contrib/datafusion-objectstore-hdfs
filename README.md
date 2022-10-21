@@ -71,3 +71,15 @@ git submodule update --init --recursive
 cargo test
 ```
 During the testing, a HDFS cluster will be mocked and started automatically.
+
+3. Run testing for with enabling feature hdfs3
+```shell
+cargo build --no-default-features --features datafusion-objectstore-hdfs/hdfs3,datafusion-objectstore-hdfs-testing/hdfs3,datafusion-hdfs-examples/hdfs3
+
+cargo test --no-default-features --features datafusion-objectstore-hdfs/hdfs3,datafusion-objectstore-hdfs-testing/hdfs3,datafusion-hdfs-examples/hdfs3
+```
+
+Run the ballista-sql test by
+```shell
+cargo run --bin ballista-sql --no-default-features --features hdfs3
+```
