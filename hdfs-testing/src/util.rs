@@ -17,10 +17,13 @@
 
 //! utility for setup local hdfs testing environment
 
+use datafusion::common::DataFusionError;
 use datafusion::error::Result;
 use hdfs::minidfs;
 use hdfs::util::HdfsUtil;
+use std::env;
 use std::future::Future;
+use std::path::PathBuf;
 use std::pin::Pin;
 use uuid::Uuid;
 
@@ -48,7 +51,7 @@ fn setup_with_hdfs_data(filename: &str) -> (String, String) {
     assert!(fs.mkdir(&tmp_dir).is_ok());
 
     // Source
-    let testdata = datafusion::test_util::parquet_test_data();
+    let testdata = parquet_test_data();
     let src_path = format!("{}/{}", testdata, filename);
 
     // Destination
@@ -65,4 +68,43 @@ fn teardown(tmp_dir: &str) {
     let dfs = minidfs::get_dfs();
     let fs = dfs.get_hdfs().ok().unwrap();
     assert!(fs.delete(tmp_dir, true).is_ok());
+}
+
+/// Returns the parquet test data directory, which is by default
+/// stored in a git submodule rooted at
+/// `parquet-testing/data`.
+///
+/// panics when the directory can not be found.
+pub fn parquet_test_data() -> String {
+    match get_data_dir("../parquet-testing/data") {
+        Ok(pb) => pb.display().to_string(),
+        Err(err) => panic!("failed to get parquet data dir: {}", err),
+    }
+}
+
+/// Returns a directory path for finding test data.
+///
+/// submodule_dir: path relative to CARGO_MANIFEST_DIR
+///
+///  Returns:
+/// The submodule_data directory relative to CARGO_MANIFEST_PATH
+fn get_data_dir(submodule_data: &str) -> Result<PathBuf> {
+    // env "CARGO_MANIFEST_DIR" is "the directory containing the manifest of your package",
+    // set by `cargo run` or `cargo test`, see:
+    // https://doc.rust-lang.org/cargo/reference/environment-variables.html
+    let dir = env!("CARGO_MANIFEST_DIR");
+
+    let pb = PathBuf::from(dir).join(submodule_data);
+    if pb.is_dir() {
+        Ok(pb)
+    } else {
+        Err(DataFusionError::External(
+            format!(
+                "the pre-defined data dir `{}` not found\n\
+             HINT: try running `git submodule update --init`",
+                pb.display(),
+            )
+            .into(),
+        ))
+    }
 }

@@ -19,6 +19,6 @@
 //!
 //! This crate introduces ``HadoopFileSystem`` as a remote ObjectStore which provides the ability of querying on HDFS files.
 //!
-//! For the HDFS access, We leverage the library [fs-hdfs](https://github.com/yahoNanJing/fs-hdfs).
+//! For the HDFS access, We leverage the library [fs-hdfs](https://github.com/datafusion-contrib/fs-hdfs).
 //! Basically, the library only provides Rust FFI APIs for the ``libhdfs`` which can be compiled by a set of C files provided by the [official Hadoop Community](https://github.com/apache/hadoop).
 pub mod object_store;

@@ -6,7 +6,7 @@ HDFS as a remote ObjectStore for [Datafusion](https://github.com/apache/arrow-da
 
 This crate introduces ``HadoopFileSystem`` as a remote ObjectStore which provides the ability of querying on HDFS files. 
 
-For the HDFS access, We leverage the library [fs-hdfs](https://github.com/yahoNanJing/fs-hdfs). Basically, the library only provides Rust FFI APIs for the ``libhdfs`` which can be compiled by a set of C files provided by the [official Hadoop Community](https://github.com/apache/hadoop).
+For the HDFS access, We leverage the library [fs-hdfs](https://github.com/datafusion-contrib/fs-hdfs). Basically, the library only provides Rust FFI APIs for the ``libhdfs`` which can be compiled by a set of C files provided by the [official Hadoop Community](https://github.com/apache/hadoop).
 
 ## Prerequisites
 Since the ``libhdfs`` is also just a C interface wrapper and the real implementation for the HDFS access is a set of Java jars, in order to make this crate work, we need to prepare the Hadoop client jars and the JRE environment.
