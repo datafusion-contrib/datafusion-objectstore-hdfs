@@ -25,14 +25,20 @@ license = "Apache-2.0"
 readme = "../README.md"
 repository = "https://github.com/datafusion-contrib/datafusion-objectstore-hdfs"
 
+[features]
+default = ["hdfs"]
+hdfs = ["fs-hdfs"]
+hdfs3 = ["fs-hdfs3"]
+
 [dependencies]
 datafusion = "13.0.0"
-fs-hdfs = "^0.1.9"
+fs-hdfs = { version = "^0.1.9", optional = true }
+fs-hdfs3 = { version = "^0.1.9", optional = true }
 uuid = { version = "1.0", features = ["v4"] }
 
 [dev-dependencies]
 arrow = { version = "24.0.0", features = ["prettyprint"] }
-datafusion-objectstore-hdfs = { path = "../hdfs" }
+datafusion-objectstore-hdfs = { path = "../hdfs", default-features = false, features = ["try_spawn_blocking"] }
 futures = "0.3"
 object_store = "0.5.0"
 tokio = { version = "1.18", features = ["macros", "rt", "rt-multi-thread", "sync", "fs"] }
