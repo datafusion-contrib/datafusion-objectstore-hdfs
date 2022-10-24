@@ -26,7 +26,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use bytes::Bytes;
 use chrono::{DateTime, NaiveDateTime, Utc};
-use futures::{stream::BoxStream, StreamExt};
+use futures::{stream::BoxStream, StreamExt, TryStreamExt};
 use hdfs::err::HdfsErr::FileNotFound;
 use hdfs::hdfs::{get_hdfs_by_full_path, FileStatus, HdfsErr, HdfsFile, HdfsFs};
 use hdfs::walkdir::HdfsWalkDir;
@@ -433,45 +433,40 @@ fn convert_walkdir_result(
 /// will be coalesced into a single request by [`coalesce_ranges`]
 pub const HDFS_COALESCE_DEFAULT: usize = 1024 * 1024;
 
+/// Up to this number of range requests will be performed in parallel by [`coalesce_ranges`]
+pub const OBJECT_STORE_COALESCE_PARALLEL: usize = 10;
+
 /// Takes a function to fetch ranges and coalesces adjacent ranges if they are
 /// less than `coalesce` bytes apart.
 pub async fn coalesce_ranges<F, Fut>(
     ranges: &[std::ops::Range<usize>],
-    mut fetch: F,
+    fetch: F,
     coalesce: usize,
 ) -> Result<Vec<Bytes>>
 where
     F: FnMut(std::ops::Range<usize>) -> Fut,
     Fut: std::future::Future<Output = Result<Bytes>>,
 {
-    let mut ret = Vec::with_capacity(ranges.len());
-    let mut start_idx = 0;
-    let mut end_idx = 1;
+    let fetch_ranges = merge_ranges(ranges, coalesce);
 
-    let mut ranges = ranges.to_vec();
-    ranges.sort_unstable_by_key(|range| range.start);
+    let fetched: Vec<_> = futures::stream::iter(fetch_ranges.iter().cloned())
+        .map(fetch)
+        .buffered(OBJECT_STORE_COALESCE_PARALLEL)
+        .try_collect()
+        .await?;
 
-    while start_idx != ranges.len() {
-        while end_idx != ranges.len()
-            && ranges[end_idx]
-                .start
-                .checked_sub(ranges[start_idx].end)
-                .map(|delta| delta <= coalesce)
-                .unwrap_or(false)
-        {
-            end_idx += 1;
-        }
+    Ok(ranges
+        .iter()
+        .map(|range| {
+            let idx = fetch_ranges.partition_point(|v| v.start <= range.start) - 1;
+            let fetch_range = &fetch_ranges[idx];
+            let fetch_bytes = &fetched[idx];
 
-        let start = ranges[start_idx].start;
-        let end = ranges[end_idx - 1].end;
-        let bytes = fetch(start..end).await?;
-        for item in ranges.iter().take(end_idx).skip(start_idx) {
-            ret.push(bytes.slice(item.start - start..item.end - start))
-        }
-        start_idx = end_idx;
-        end_idx += 1;
-    }
-    Ok(ret)
+            let start = range.start - fetch_range.start;
+            let end = range.end - fetch_range.start;
+            fetch_bytes.slice(start..end)
+        })
+        .collect())
 }
 
 /// Takes a function and spawns it to a tokio blocking pool if available
@@ -488,6 +483,44 @@ where
 
     #[cfg(not(feature = "try_spawn_blocking"))]
     f()
+}
+
+/// Returns a sorted list of ranges that cover `ranges`
+fn merge_ranges(ranges: &[std::ops::Range<usize>], coalesce: usize) -> Vec<std::ops::Range<usize>> {
+    if ranges.is_empty() {
+        return vec![];
+    }
+
+    let mut ranges = ranges.to_vec();
+    ranges.sort_unstable_by_key(|range| range.start);
+
+    let mut ret = Vec::with_capacity(ranges.len());
+    let mut start_idx = 0;
+    let mut end_idx = 1;
+
+    while start_idx != ranges.len() {
+        let mut range_end = ranges[start_idx].end;
+
+        while end_idx != ranges.len()
+            && ranges[end_idx]
+                .start
+                .checked_sub(range_end)
+                .map(|delta| delta <= coalesce)
+                .unwrap_or(true)
+        {
+            range_end = range_end.max(ranges[end_idx].end);
+            end_idx += 1;
+        }
+
+        let start = ranges[start_idx].start;
+        let end = range_end;
+        ret.push(start..end);
+
+        start_idx = end_idx;
+        end_idx += 1;
+    }
+
+    ret
 }
 
 fn to_error(err: HdfsErr) -> Error {
