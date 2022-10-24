@@ -597,7 +597,7 @@ mod tests {
         let fetches = do_fetch(vec![0..1, 56..72, 73..75], 1).await;
         assert_eq!(fetches, vec![0..1, 56..75]);
 
-        let fetches = do_fetch(vec![0..1, 5..6, 7..9, 2..3, 4..6], 1).await;
-        assert_eq!(fetches, vec![0..1, 5..9, 2..6]);
+        let fetches = do_fetch(vec![0..1, 5..6, 7..9, 4..6], 1).await;
+        assert_eq!(fetches, vec![0..1, 4..9]);
     }
 }
