@@ -19,7 +19,7 @@ Since the ``libhdfs`` is also just a C interface wrapper and the real implementa
 
 ### Prepare Hadoop client
 
-1. To get a Hadoop distribution, download a recent stable release from one of the [Apache Download Mirrors](http://www.apache.org/dyn/closer.cgi/hadoop/common). Currently, we only support Hadoop-2.
+1. To get a Hadoop distribution, download a recent stable release from one of the [Apache Download Mirrors](http://www.apache.org/dyn/closer.cgi/hadoop/common). Currently, we support Hadoop-2 and Hadoop-3.
 
 2. Unpack the downloaded Hadoop distribution. For example, the folder is /opt/hadoop. Then prepare some environment variables:
 ```shell
