@@ -434,7 +434,7 @@ fn convert_walkdir_result(
 pub const HDFS_COALESCE_DEFAULT: usize = 1024 * 1024;
 
 /// Takes a function to fetch ranges and coalesces adjacent ranges if they are
-/// less than `coalesce` bytes apart. Out of order `ranges` are not coalesced
+/// less than `coalesce` bytes apart.
 pub async fn coalesce_ranges<F, Fut>(
     ranges: &[std::ops::Range<usize>],
     mut fetch: F,
@@ -447,6 +447,9 @@ where
     let mut ret = Vec::with_capacity(ranges.len());
     let mut start_idx = 0;
     let mut end_idx = 1;
+
+    let mut ranges = ranges.to_vec();
+    ranges.sort_unstable_by_key(|range| range.start);
 
     while start_idx != ranges.len() {
         while end_idx != ranges.len()
