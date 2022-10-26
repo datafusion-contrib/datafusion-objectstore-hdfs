@@ -17,7 +17,7 @@
 
 [package]
 name = "datafusion-objectstore-hdfs-testing"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 
 authors = ["Yanghong Zhong <nju_yaho@apache.org>"]
