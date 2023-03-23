@@ -17,7 +17,7 @@
 
 [package]
 name = "datafusion-objectstore-hdfs"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 
 description = "A hdfs object store implemented the object store"
