@@ -120,7 +120,7 @@ impl ObjectStore for HadoopFileSystem {
         let location = HadoopFileSystem::path_to_filesystem(location);
 
         maybe_spawn_blocking(move || {
-            let file = match hdfs.create(&location) {
+            let file = match hdfs.create_with_overwrite(&location, true) {
                 Ok(f) => f,
                 Err(e) => {
                     return Err(to_error(e));
@@ -229,7 +229,8 @@ impl ObjectStore for HadoopFileSystem {
         &self,
         prefix: Option<&Path>,
     ) -> object_store::Result<BoxStream<'_, object_store::Result<ObjectMeta>>> {
-        let prefix = prefix.expect("Prefix for hdfs should not be None");
+        let default_path = Path::from(self.get_path_root());
+        let prefix = prefix.unwrap_or(&default_path);
         let hdfs = self.hdfs.clone();
         let hdfs_root = self.hdfs.url().to_owned();
         let walkdir =
@@ -284,7 +285,8 @@ impl ObjectStore for HadoopFileSystem {
     /// List files and directories directly under the prefix path.
     /// It will not recursively search leaf files whose depth is larger than 1
     async fn list_with_delimiter(&self, prefix: Option<&Path>) -> object_store::Result<ListResult> {
-        let prefix = prefix.expect("Prefix for hdfs should not be None");
+        let default_path = Path::from(self.get_path_root());
+        let prefix = prefix.unwrap_or(&default_path);
         let hdfs = self.hdfs.clone();
         let hdfs_root = self.hdfs.url().to_owned();
         let walkdir =
@@ -399,7 +401,7 @@ impl ObjectStore for HadoopFileSystem {
 /// Create Path without prefix
 pub fn get_path(full_path: &str, prefix: &str) -> Path {
     let partial_path = &full_path[prefix.len()..];
-    Path::from(partial_path)
+    Path::parse(partial_path).unwrap()
 }
 
 /// Convert HDFS file status to ObjectMeta
