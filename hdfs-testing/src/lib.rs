@@ -19,6 +19,8 @@ pub mod util;
 
 #[cfg(test)]
 mod tests {
+    use crate::util::run_hdfs_test;
+
     use std::future::Future;
     use std::pin::Pin;
     use std::sync::Arc;
@@ -32,11 +34,11 @@ mod tests {
     use datafusion::physical_plan::file_format::FileScanConfig;
     use datafusion::physical_plan::ExecutionPlan;
     use datafusion::prelude::{ParquetReadOptions, SessionConfig, SessionContext};
-    use futures::StreamExt;
 
-    use crate::util::run_hdfs_test;
     use datafusion_objectstore_hdfs::object_store::hdfs::HadoopFileSystem;
+    use futures::StreamExt;
     use object_store::ObjectStore;
+    use url::Url;
 
     #[tokio::test]
     async fn read_small_batches_from_hdfs() -> Result<()> {
@@ -109,6 +111,7 @@ mod tests {
         projection: &Option<Vec<usize>>,
         limit: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
+        let state = ctx.state();
         let store = Arc::new(HadoopFileSystem::new(file_name).unwrap());
         register_hdfs_object_store(ctx, store.clone());
 
@@ -125,16 +128,17 @@ mod tests {
         let store = store as _;
         let format = ParquetFormat::default();
         let file_schema = format
-            .infer_schema(&store, vec![file_meta.clone()].as_slice())
+            .infer_schema(&state, &store, vec![file_meta.clone()].as_slice())
             .await
             .expect("Schema inference");
         let statistics = format
-            .infer_stats(&store, file_schema.clone(), &file_meta)
+            .infer_stats(&state, &store, file_schema.clone(), &file_meta)
             .await
             .expect("Stats inference");
         let file_groups = vec![vec![file_partition]];
         let exec = format
             .create_physical_plan(
+                &state,
                 FileScanConfig {
                     object_store_url: ObjectStoreUrl::parse(path_root).unwrap(),
                     file_schema,
@@ -143,8 +147,10 @@ mod tests {
                     projection: projection.clone(),
                     limit,
                     table_partition_cols: vec![],
+                    output_ordering: None,
+                    infinite_source: false,
                 },
-                &[],
+                None,
             )
             .await?;
         Ok(exec)
@@ -179,7 +185,7 @@ mod tests {
     }
 
     fn register_hdfs_object_store(ctx: &SessionContext, store: Arc<HadoopFileSystem>) {
-        ctx.runtime_env()
-            .register_object_store("hdfs", store.get_hdfs_host(), store);
+        let url = Url::parse(&store.get_path_root()).unwrap();
+        ctx.runtime_env().register_object_store(&url, store);
     }
 }
