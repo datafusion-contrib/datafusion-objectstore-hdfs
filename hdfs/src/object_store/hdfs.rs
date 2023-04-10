@@ -409,7 +409,7 @@ pub fn convert_metadata(file: FileStatus, prefix: &str) -> ObjectMeta {
     ObjectMeta {
         location: get_path(file.name(), prefix),
         last_modified: DateTime::<Utc>::from_utc(
-            NaiveDateTime::from_timestamp(file.last_modified(), 0),
+            NaiveDateTime::from_timestamp_opt(file.last_modified(), 0).unwrap(),
             Utc,
         ),
         size: file.len(),
