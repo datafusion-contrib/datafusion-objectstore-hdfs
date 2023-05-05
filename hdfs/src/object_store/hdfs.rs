@@ -27,11 +27,12 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use futures::{stream::BoxStream, StreamExt, TryStreamExt};
-use hdfs::err::HdfsErr::FileNotFound;
 use hdfs::hdfs::{get_hdfs_by_full_path, FileStatus, HdfsErr, HdfsFile, HdfsFs};
 use hdfs::walkdir::HdfsWalkDir;
-use object_store::path::Path;
-use object_store::{path, MultipartId};
+use object_store::{
+    path::{self, Path},
+    MultipartId,
+};
 use object_store::{Error, GetResult, ListResult, ObjectMeta, ObjectStore, Result};
 use tokio::io::AsyncWrite;
 
@@ -115,7 +116,7 @@ impl Display for HadoopFileSystem {
 impl ObjectStore for HadoopFileSystem {
     // Current implementation is very simple due to missing configs,
     // like whether able to overwrite, whether able to create parent directories, etc
-    async fn put(&self, location: &Path, bytes: Bytes) -> object_store::Result<()> {
+    async fn put(&self, location: &Path, bytes: Bytes) -> Result<()> {
         let hdfs = self.hdfs.clone();
         let location = HadoopFileSystem::path_to_filesystem(location);
 
@@ -147,7 +148,7 @@ impl ObjectStore for HadoopFileSystem {
         todo!()
     }
 
-    async fn get(&self, location: &Path) -> object_store::Result<GetResult> {
+    async fn get(&self, location: &Path) -> Result<GetResult> {
         let hdfs = self.hdfs.clone();
         let location = HadoopFileSystem::path_to_filesystem(location);
 
@@ -176,7 +177,7 @@ impl ObjectStore for HadoopFileSystem {
         ))
     }
 
-    async fn get_range(&self, location: &Path, range: Range<usize>) -> object_store::Result<Bytes> {
+    async fn get_range(&self, location: &Path, range: Range<usize>) -> Result<Bytes> {
         let hdfs = self.hdfs.clone();
         let location = HadoopFileSystem::path_to_filesystem(location);
 
@@ -199,7 +200,7 @@ impl ObjectStore for HadoopFileSystem {
         .await
     }
 
-    async fn head(&self, location: &Path) -> object_store::Result<ObjectMeta> {
+    async fn head(&self, location: &Path) -> Result<ObjectMeta> {
         let hdfs = self.hdfs.clone();
         let hdfs_root = self.hdfs.url().to_owned();
         let location = HadoopFileSystem::path_to_filesystem(location);
@@ -211,7 +212,7 @@ impl ObjectStore for HadoopFileSystem {
         .await
     }
 
-    async fn delete(&self, location: &Path) -> object_store::Result<()> {
+    async fn delete(&self, location: &Path) -> Result<()> {
         let hdfs = self.hdfs.clone();
         let location = HadoopFileSystem::path_to_filesystem(location);
 
@@ -225,10 +226,7 @@ impl ObjectStore for HadoopFileSystem {
 
     /// List all of the leaf files under the prefix path.
     /// It will recursively search leaf files whose depth is larger than 1
-    async fn list(
-        &self,
-        prefix: Option<&Path>,
-    ) -> object_store::Result<BoxStream<'_, object_store::Result<ObjectMeta>>> {
+    async fn list(&self, prefix: Option<&Path>) -> Result<BoxStream<'_, Result<ObjectMeta>>> {
         let default_path = Path::from(self.get_path_root());
         let prefix = prefix.unwrap_or(&default_path);
         let hdfs = self.hdfs.clone();
@@ -284,7 +282,7 @@ impl ObjectStore for HadoopFileSystem {
 
     /// List files and directories directly under the prefix path.
     /// It will not recursively search leaf files whose depth is larger than 1
-    async fn list_with_delimiter(&self, prefix: Option<&Path>) -> object_store::Result<ListResult> {
+    async fn list_with_delimiter(&self, prefix: Option<&Path>) -> Result<ListResult> {
         let default_path = Path::from(self.get_path_root());
         let prefix = prefix.unwrap_or(&default_path);
         let hdfs = self.hdfs.clone();
@@ -334,7 +332,7 @@ impl ObjectStore for HadoopFileSystem {
 
     /// Copy an object from one path to another.
     /// If there exists an object at the destination, it will be overwritten.
-    async fn copy(&self, from: &Path, to: &Path) -> object_store::Result<()> {
+    async fn copy(&self, from: &Path, to: &Path) -> Result<()> {
         let hdfs = self.hdfs.clone();
         let from = HadoopFileSystem::path_to_filesystem(from);
         let to = HadoopFileSystem::path_to_filesystem(to);
@@ -376,7 +374,7 @@ impl ObjectStore for HadoopFileSystem {
 
     /// Copy an object from one path to another, only if destination is empty.
     /// Will return an error if the destination already has an object.
-    async fn copy_if_not_exists(&self, from: &Path, to: &Path) -> object_store::Result<()> {
+    async fn copy_if_not_exists(&self, from: &Path, to: &Path) -> Result<()> {
         let hdfs = self.hdfs.clone();
         let from = HadoopFileSystem::path_to_filesystem(from);
         let to = HadoopFileSystem::path_to_filesystem(to);
@@ -423,7 +421,7 @@ fn convert_walkdir_result(
     match res {
         Ok(entry) => Ok(Some(entry)),
         Err(walkdir_err) => match walkdir_err {
-            FileNotFound(_) => Ok(None),
+            HdfsErr::FileNotFound(_) => Ok(None),
             _ => Err(to_error(HdfsErr::Generic(
                 "Fail to walk hdfs directory".to_owned(),
             ))),
@@ -441,12 +439,12 @@ pub const OBJECT_STORE_COALESCE_PARALLEL: usize = 10;
 /// Takes a function to fetch ranges and coalesces adjacent ranges if they are
 /// less than `coalesce` bytes apart.
 pub async fn coalesce_ranges<F, Fut>(
-    ranges: &[std::ops::Range<usize>],
+    ranges: &[Range<usize>],
     fetch: F,
     coalesce: usize,
 ) -> Result<Vec<Bytes>>
 where
-    F: FnMut(std::ops::Range<usize>) -> Fut,
+    F: FnMut(Range<usize>) -> Fut,
     Fut: std::future::Future<Output = Result<Bytes>>,
 {
     let fetch_ranges = merge_ranges(ranges, coalesce);
@@ -488,7 +486,7 @@ where
 }
 
 /// Returns a sorted list of ranges that cover `ranges`
-fn merge_ranges(ranges: &[std::ops::Range<usize>], coalesce: usize) -> Vec<std::ops::Range<usize>> {
+fn merge_ranges(ranges: &[Range<usize>], coalesce: usize) -> Vec<Range<usize>> {
     if ranges.is_empty() {
         return vec![];
     }
