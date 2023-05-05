@@ -35,10 +35,26 @@ mod tests {
     use datafusion::physical_plan::ExecutionPlan;
     use datafusion::prelude::{ParquetReadOptions, SessionConfig, SessionContext};
 
-    use datafusion_objectstore_hdfs::object_store::hdfs::HadoopFileSystem;
+    use datafusion_objectstore_hdfs::object_store::hdfs::{get_path, HadoopFileSystem};
     use futures::StreamExt;
     use object_store::ObjectStore;
     use url::Url;
+
+    #[tokio::test]
+    async fn test_read() -> Result<()> {
+        run_hdfs_test("alltypes_plain.parquet".to_string(), |filename_hdfs| {
+            Box::pin(async move {
+                let hdfs_object_store = HadoopFileSystem::new(&filename_hdfs).unwrap();
+                let location = get_path(&filename_hdfs, &hdfs_object_store.get_path_root());
+                let ret = hdfs_object_store.get(&location).await?;
+                let data = ret.bytes().await?;
+                assert!(data.len() > 0);
+
+                Ok(())
+            })
+        })
+        .await
+    }
 
     #[tokio::test]
     async fn read_small_batches_from_hdfs() -> Result<()> {

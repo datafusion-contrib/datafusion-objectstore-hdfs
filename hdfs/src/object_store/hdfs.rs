@@ -31,9 +31,8 @@ use hdfs::hdfs::{get_hdfs_by_full_path, FileStatus, HdfsErr, HdfsFile, HdfsFs};
 use hdfs::walkdir::HdfsWalkDir;
 use object_store::{
     path::{self, Path},
-    MultipartId,
+    Error, GetResult, ListResult, MultipartId, ObjectMeta, ObjectStore, Result,
 };
-use object_store::{Error, GetResult, ListResult, ObjectMeta, ObjectStore, Result};
 use tokio::io::AsyncWrite;
 
 /// scheme for HDFS File System

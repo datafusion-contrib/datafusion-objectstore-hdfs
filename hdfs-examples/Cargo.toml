@@ -15,10 +15,10 @@ hdfs3 = ["ballista/hdfs3", "datafusion-objectstore-hdfs-testing/hdfs3"]
 
 [dependencies]
 ballista = { git = "https://github.com/apache/arrow-ballista.git", branch = "main", features = ["standalone"] }
-datafusion = "21.0.0"
+datafusion = "23.0.0"
 datafusion-objectstore-hdfs-testing = { path = "../hdfs-testing", default-features = false }
 futures = "0.3"
 num_cpus = "1.13.0"
-prost = "0.10"
+prost = "0.11"
 tokio = { version = "1.18", features = ["macros", "rt", "rt-multi-thread", "sync", "parking_lot"] }
 tonic = "0.8"
