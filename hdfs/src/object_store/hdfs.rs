@@ -29,10 +29,7 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use futures::{stream::BoxStream, StreamExt, TryStreamExt};
 use hdfs::hdfs::{get_hdfs_by_full_path, FileStatus, HdfsErr, HdfsFile, HdfsFs};
 use hdfs::walkdir::HdfsWalkDir;
-use object_store::{
-    path::{self, Path},
-    Error, GetResult, ListResult, MultipartId, ObjectMeta, ObjectStore, Result,
-};
+use object_store::{path::{self, Path}, Error, GetResult, ListResult, MultipartId, ObjectMeta, ObjectStore, Result, GetOptions};
 use tokio::io::AsyncWrite;
 
 /// scheme for HDFS File System
@@ -174,6 +171,10 @@ impl ObjectStore for HadoopFileSystem {
         Ok(GetResult::Stream(
             futures::stream::once(async move { Ok(blob) }).boxed(),
         ))
+    }
+
+    async fn get_opts(&self, _location: &Path, _options: GetOptions) -> Result<GetResult> {
+        todo!()
     }
 
     async fn get_range(&self, location: &Path, range: Range<usize>) -> Result<Bytes> {
@@ -410,6 +411,7 @@ pub fn convert_metadata(file: FileStatus, prefix: &str) -> ObjectMeta {
             Utc,
         ),
         size: file.len(),
+        e_tag: None,
     }
 }
 
