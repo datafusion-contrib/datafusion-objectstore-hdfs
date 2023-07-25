@@ -21,3 +21,6 @@ members = [
     "hdfs-examples",
     "hdfs-testing",
 ]
+
+[patch.crates-io]
+object_store = { git = "https://github.com/yjshen/arrow-rs.git", branch = "pub_multipart_upload" }

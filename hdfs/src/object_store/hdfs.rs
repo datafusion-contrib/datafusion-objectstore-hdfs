@@ -17,11 +17,11 @@
 
 //! Object store that represents the HDFS File System.
 
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::fmt::{Display, Formatter};
 use std::ops::Range;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -30,6 +30,7 @@ use futures::{stream::BoxStream, StreamExt, TryStreamExt};
 use hdfs::hdfs::{get_hdfs_by_full_path, FileStatus, HdfsErr, HdfsFile, HdfsFs};
 use hdfs::walkdir::HdfsWalkDir;
 use object_store::{path::{self, Path}, Error, GetResult, ListResult, MultipartId, ObjectMeta, ObjectStore, Result, GetOptions};
+use object_store::multipart::{CloudMultiPartUpload, CloudMultiPartUploadImpl};
 use tokio::io::AsyncWrite;
 
 /// scheme for HDFS File System
@@ -108,6 +109,55 @@ impl Display for HadoopFileSystem {
     }
 }
 
+struct HdfsMultiPartUpload {
+    location: Path,
+    hdfs: Arc<HdfsFs>,
+    content: Arc<Mutex<HashMap<usize, Vec<u8>>>>,
+}
+
+#[async_trait]
+impl CloudMultiPartUploadImpl for HdfsMultiPartUpload {
+    async fn put_multipart_part(&self, buf: Vec<u8>, part_idx: usize) -> Result<object_store::multipart::UploadPart, std::io::Error> {
+        let mut content = self.content.lock().unwrap();
+        content.insert(part_idx, buf);
+
+        Ok(object_store::multipart::UploadPart {
+            content_id: part_idx.to_string(),
+        })
+    }
+
+    async fn complete(&self, completed_parts: Vec<object_store::multipart::UploadPart>) -> Result<(), std::io::Error> {
+        let hdfs = self.hdfs.clone();
+        let location = HadoopFileSystem::path_to_filesystem(&self.location);
+
+        maybe_spawn_blocking(move || {
+            let file = match hdfs.create_with_overwrite(&location, true) {
+                Ok(f) => f,
+                Err(e) => {
+                    return Err(to_error(e));
+                }
+            };
+
+            let mut content = self.content.lock().unwrap();
+            // sort by hash key and put into file
+            let mut keys: Vec<usize> = content.keys().cloned().collect();
+            keys.sort();
+
+            assert_eq!(keys[0], 0, "Missing part 0 for multipart upload");
+            assert_eq!(keys[keys.len() - 1], keys.len() - 1, "Missing last part for multipart upload");
+
+            for key in keys {
+                let buf = content.get(&key).unwrap();
+                file.write(buf.as_slice()).map_err(to_error)?;
+            }
+
+            file.close().map_err(to_error)?;
+
+            Ok(())
+        })
+    }
+}
+
 #[async_trait]
 impl ObjectStore for HadoopFileSystem {
     // Current implementation is very simple due to missing configs,
@@ -135,13 +185,20 @@ impl ObjectStore for HadoopFileSystem {
 
     async fn put_multipart(
         &self,
-        _location: &Path,
+        location: &Path,
     ) -> Result<(MultipartId, Box<dyn AsyncWrite + Unpin + Send>)> {
-        todo!()
+        let upload = HdfsMultiPartUpload {
+            location: location.clone(),
+            hdfs: self.hdfs.clone(),
+            content: Arc::new(Mutex::new(HashMap::new())),
+        };
+
+        Ok((MultipartId::default(), Box::new(CloudMultiPartUpload::new(upload, 8))))
     }
 
     async fn abort_multipart(&self, _location: &Path, _multipart_id: &MultipartId) -> Result<()> {
-        todo!()
+        // Currently, the implementation doesn't put anything to HDFS until complete is called.
+        Ok(())
     }
 
     async fn get(&self, location: &Path) -> Result<GetResult> {

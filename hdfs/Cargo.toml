@@ -46,5 +46,5 @@ chrono = { version = "0.4" }
 fs-hdfs = { version = "^0.1.11", optional = true }
 fs-hdfs3 = { version = "^0.1.11", optional = true }
 futures = "0.3"
-object_store = "0.6"
+object_store = { version = "0.6", features = ["cloud"] }
 tokio = { version = "1.18", features = ["macros", "rt", "rt-multi-thread", "sync", "parking_lot"] }
