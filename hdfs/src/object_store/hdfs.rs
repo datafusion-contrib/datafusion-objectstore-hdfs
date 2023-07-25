@@ -126,9 +126,10 @@ impl CloudMultiPartUploadImpl for HdfsMultiPartUpload {
         })
     }
 
-    async fn complete(&self, completed_parts: Vec<object_store::multipart::UploadPart>) -> Result<(), std::io::Error> {
+    async fn complete(&self, _completed_parts: Vec<object_store::multipart::UploadPart>) -> Result<(), std::io::Error> {
         let hdfs = self.hdfs.clone();
-        let location = HadoopFileSystem::path_to_filesystem(&self.location);
+        let location = HadoopFileSystem::path_to_filesystem(&self.location.clone());
+        let content = self.content.clone();
 
         maybe_spawn_blocking(move || {
             let file = match hdfs.create_with_overwrite(&location, true) {
@@ -138,7 +139,7 @@ impl CloudMultiPartUploadImpl for HdfsMultiPartUpload {
                 }
             };
 
-            let mut content = self.content.lock().unwrap();
+            let content = content.lock().unwrap();
             // sort by hash key and put into file
             let mut keys: Vec<usize> = content.keys().cloned().collect();
             keys.sort();
@@ -155,6 +156,8 @@ impl CloudMultiPartUploadImpl for HdfsMultiPartUpload {
 
             Ok(())
         })
+        .await
+        .map_err(to_io_error)
     }
 }
 
@@ -604,6 +607,27 @@ fn to_error(err: HdfsErr) -> Error {
             store: "HadoopFileSystem",
             source: Box::new(HdfsErr::Generic(err_str)),
         },
+    }
+}
+
+fn to_io_error(err: Error) -> std::io::Error {
+    match err {
+        Error::Generic { store, source } => {
+            std::io::Error::new(std::io::ErrorKind::Other, format!("{}: {}", store, source))
+        }
+        Error::NotFound { path, source } => {
+            std::io::Error::new(std::io::ErrorKind::NotFound, format!("{}: {}", path, source))
+        }
+        Error::AlreadyExists { path, source } => {
+            std::io::Error::new(std::io::ErrorKind::AlreadyExists, format!("{}: {}", path, source))
+        }
+        Error::InvalidPath { source } => {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, source)
+        }
+
+        _ => {
+            std::io::Error::new(std::io::ErrorKind::Other, format!("HadoopFileSystem: {}", err))
+        }
     }
 }
 
