@@ -29,7 +29,10 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use futures::{stream::BoxStream, StreamExt, TryStreamExt};
 use hdfs::hdfs::{get_hdfs_by_full_path, FileStatus, HdfsErr, HdfsFile, HdfsFs};
 use hdfs::walkdir::HdfsWalkDir;
-use object_store::{path::{self, Path}, Error, GetResult, ListResult, MultipartId, ObjectMeta, ObjectStore, Result, GetOptions};
+use object_store::{
+    path::{self, Path},
+    Error, GetOptions, GetResult, ListResult, MultipartId, ObjectMeta, ObjectStore, Result,
+};
 use object_store::multipart::{CloudMultiPartUpload, CloudMultiPartUploadImpl};
 use tokio::io::AsyncWrite;
 
@@ -233,8 +236,46 @@ impl ObjectStore for HadoopFileSystem {
         ))
     }
 
-    async fn get_opts(&self, _location: &Path, _options: GetOptions) -> Result<GetResult> {
-        todo!()
+    async fn get_opts(&self, location: &Path, options: GetOptions) -> Result<GetResult> {
+        if options.if_match.is_some() || options.if_none_match.is_some() {
+            return Err(Error::Generic {
+                store: "HadoopFileSystem",
+                source: Box::new(HdfsErr::Generic("ETags not supported".to_string())),
+            });
+        }
+
+        let hdfs = self.hdfs.clone();
+        let location = HadoopFileSystem::path_to_filesystem(location);
+
+        let blob: Bytes = maybe_spawn_blocking(move || {
+            let file = hdfs.open(&location).map_err(to_error)?;
+
+            let file_status = file.get_file_status().map_err(to_error)?;
+
+            if options.if_unmodified_since.is_some() || options.if_modified_since.is_some() {
+                check_modified(&options, &location, last_modified(&file_status))?;
+            }
+
+            let range = if let Some(range) = options.range {
+                range
+            } else {
+                Range {
+                    start: 0,
+                    end: file_status.len(),
+                }
+            };
+
+            let buf = Self::read_range(&range, &file)?;
+
+            file.close().map_err(to_error)?;
+
+            Ok(buf)
+        })
+        .await?;
+
+        Ok(GetResult::Stream(
+            futures::stream::once(async move { Ok(blob) }).boxed(),
+        ))
     }
 
     async fn get_range(&self, location: &Path, range: Range<usize>) -> Result<Bytes> {
@@ -466,13 +507,42 @@ pub fn get_path(full_path: &str, prefix: &str) -> Path {
 pub fn convert_metadata(file: FileStatus, prefix: &str) -> ObjectMeta {
     ObjectMeta {
         location: get_path(file.name(), prefix),
-        last_modified: DateTime::<Utc>::from_utc(
-            NaiveDateTime::from_timestamp_opt(file.last_modified(), 0).unwrap(),
-            Utc,
-        ),
+        last_modified: last_modified(&file),
         size: file.len(),
         e_tag: None,
     }
+}
+
+fn last_modified(file: &FileStatus) -> DateTime<Utc> {
+    DateTime::<Utc>::from_utc(
+        NaiveDateTime::from_timestamp_opt(file.last_modified(), 0).unwrap(),
+        Utc,
+    )
+}
+
+fn check_modified(
+    get_options: &GetOptions,
+    location: &str,
+    last_modified: DateTime<Utc>,
+) -> Result<()> {
+    if let Some(date) = get_options.if_modified_since {
+        if last_modified <= date {
+            return Err(Error::NotModified {
+                path: location.to_string(),
+                source: format!("{} >= {}", date, last_modified).into(),
+            });
+        }
+    }
+
+    if let Some(date) = get_options.if_unmodified_since {
+        if last_modified > date {
+            return Err(Error::Precondition {
+                path: location.to_string(),
+                source: format!("{} < {}", date, last_modified).into(),
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Convert walkdir results and converts not-found errors into `None`.
