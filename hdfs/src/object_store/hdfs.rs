@@ -275,9 +275,9 @@ impl ObjectStore for HadoopFileSystem {
         ))
     }
 
-    async fn abort_multipart(&self, _location: &Path, _multipart_id: &MultipartId) -> Result<()> {
-        // Currently, the implementation doesn't put anything to HDFS until complete is called.
-        Ok(())
+    async fn abort_multipart(&self, location: &Path, _multipart_id: &MultipartId) -> Result<()> {
+        // remove the file if it exists
+        self.delete(location).await
     }
 
     async fn get(&self, location: &Path) -> Result<GetResult> {
