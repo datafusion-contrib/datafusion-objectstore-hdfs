@@ -30,8 +30,8 @@ mod tests {
     use datafusion::datasource::file_format::FileFormat;
     use datafusion::datasource::listing::PartitionedFile;
     use datafusion::datasource::object_store::ObjectStoreUrl;
+    use datafusion::datasource::physical_plan::FileScanConfig;
     use datafusion::error::Result;
-    use datafusion::physical_plan::file_format::FileScanConfig;
     use datafusion::physical_plan::ExecutionPlan;
     use datafusion::prelude::{ParquetReadOptions, SessionConfig, SessionContext};
 
@@ -163,7 +163,7 @@ mod tests {
                     projection: projection.clone(),
                     limit,
                     table_partition_cols: vec![],
-                    output_ordering: None,
+                    output_ordering: vec![],
                     infinite_source: false,
                 },
                 None,

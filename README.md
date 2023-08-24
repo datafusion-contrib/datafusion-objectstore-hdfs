@@ -48,7 +48,8 @@ let hdfs_file_uri = "hdfs://localhost:8020/testing/tpch_1g/parquet/line_item";
 in which there're a list of parquet files. Then we can query on these parquet files as follows:
 ```rust
 let ctx = SessionContext::new();
-ctx.runtime_env().register_object_store("hdfs", "", Arc::new(HadoopFileSystem));
+let url = Url::parse("hdfs://").unwrap();
+ctx.runtime_env().register_object_store(&url, Arc::new(HadoopFileSystem));
 let table_name = "line_item";
 println!(
     "Register table {} with parquet file {}",
