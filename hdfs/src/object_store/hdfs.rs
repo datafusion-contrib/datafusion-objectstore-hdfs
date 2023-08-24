@@ -17,7 +17,7 @@
 
 //! Object store that represents the HDFS File System.
 
-use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeSet, VecDeque};
 use std::fmt::{Display, Formatter};
 use std::ops::Range;
 use std::path::PathBuf;
@@ -29,8 +29,11 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use futures::{stream::BoxStream, StreamExt, TryStreamExt};
 use hdfs::hdfs::{get_hdfs_by_full_path, FileStatus, HdfsErr, HdfsFile, HdfsFs};
 use hdfs::walkdir::HdfsWalkDir;
-use object_store::{path::{self, Path}, Error, GetResult, ListResult, MultipartId, ObjectMeta, ObjectStore, Result, GetOptions};
 use object_store::multipart::{CloudMultiPartUpload, CloudMultiPartUploadImpl};
+use object_store::{
+    path::{self, Path},
+    Error, GetOptions, GetResult, ListResult, MultipartId, ObjectMeta, ObjectStore, Result,
+};
 use tokio::io::AsyncWrite;
 
 /// scheme for HDFS File System
@@ -112,52 +115,120 @@ impl Display for HadoopFileSystem {
 struct HdfsMultiPartUpload {
     location: Path,
     hdfs: Arc<HdfsFs>,
-    content: Arc<Mutex<HashMap<usize, Vec<u8>>>>,
+    content: Arc<Mutex<Vec<Option<Vec<u8>>>>>,
+    first_unwritten_idx: Arc<Mutex<usize>>,
+    file_created: Arc<Mutex<bool>>,
+}
+
+impl HdfsMultiPartUpload {
+    fn create_file_if_necessary(&self) -> Result<()> {
+        let mut file_created = self.file_created.lock().unwrap();
+        if !*file_created {
+            let location = HadoopFileSystem::path_to_filesystem(&self.location.clone());
+            match self.hdfs.create_with_overwrite(&location, true) {
+                Ok(_) => {
+                    *file_created = true;
+                    Ok(())
+                }
+                Err(e) => Err(to_error(e)),
+            }
+        } else {
+            Ok(())
+        }
+    }
 }
 
 #[async_trait]
 impl CloudMultiPartUploadImpl for HdfsMultiPartUpload {
-    async fn put_multipart_part(&self, buf: Vec<u8>, part_idx: usize) -> Result<object_store::multipart::UploadPart, std::io::Error> {
-        let mut content = self.content.lock().unwrap();
-        content.insert(part_idx, buf);
+    async fn put_multipart_part(
+        &self,
+        buf: Vec<u8>,
+        part_idx: usize,
+    ) -> Result<object_store::multipart::UploadPart, std::io::Error> {
+        {
+            let mut content = self.content.lock().unwrap();
+            while content.len() <= part_idx {
+                content.push(None);
+            }
+            content[part_idx] = Some(buf);
+        }
+
+        let location = HadoopFileSystem::path_to_filesystem(&self.location.clone());
+        let first_unwritten_idx = {
+            let guard = self.first_unwritten_idx.lock().unwrap();
+            *guard
+        };
+
+        self.create_file_if_necessary()?;
+
+        // Attempt to write all contiguous sequences of parts
+        if first_unwritten_idx <= part_idx {
+            let hdfs = self.hdfs.clone();
+            let content = self.content.clone();
+            let first_unwritten_idx = self.first_unwritten_idx.clone();
+
+            maybe_spawn_blocking(move || {
+                let file = hdfs.append(&location).map_err(to_error)?;
+                let mut content = content.lock().unwrap();
+
+                let mut first_unwritten_idx = first_unwritten_idx.lock().unwrap();
+
+                // Write all contiguous parts and free up the memory
+                while let Some(buf) = content.get_mut(*first_unwritten_idx).and_then(Option::take) {
+                    file.write(buf.as_slice()).map_err(to_error)?;
+                    *first_unwritten_idx += 1;
+                }
+
+                file.close().map_err(to_error)?;
+                Ok(())
+            })
+            .await
+            .map_err(to_io_error)?;
+        }
 
         Ok(object_store::multipart::UploadPart {
             content_id: part_idx.to_string(),
         })
     }
 
-    async fn complete(&self, _completed_parts: Vec<object_store::multipart::UploadPart>) -> Result<(), std::io::Error> {
-        let hdfs = self.hdfs.clone();
-        let location = HadoopFileSystem::path_to_filesystem(&self.location.clone());
-        let content = self.content.clone();
+    async fn complete(
+        &self,
+        completed_parts: Vec<object_store::multipart::UploadPart>,
+    ) -> Result<(), std::io::Error> {
+        let content = self.content.lock().unwrap();
+        if content.len() != completed_parts.len() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "Expected {} parts, but only {} parts were received",
+                    content.len(),
+                    completed_parts.len()
+                ),
+            ));
+        }
 
-        maybe_spawn_blocking(move || {
-            let file = match hdfs.create_with_overwrite(&location, true) {
-                Ok(f) => f,
-                Err(e) => {
-                    return Err(to_error(e));
-                }
-            };
+        // check first_unwritten_idx
+        let first_unwritten_idx = self.first_unwritten_idx.lock().unwrap();
+        if *first_unwritten_idx != content.len() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "Expected to write {} parts, but only {} parts were written",
+                    content.len(),
+                    *first_unwritten_idx
+                ),
+            ));
+        }
 
-            let content = content.lock().unwrap();
-            // sort by hash key and put into file
-            let mut keys: Vec<usize> = content.keys().cloned().collect();
-            keys.sort();
+        // Last check: make sure all parts were written, since we change it to None after writing
+        if content.iter().any(Option::is_some) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Not all parts were written",
+            ));
+        }
 
-            assert_eq!(keys[0], 0, "Missing part 0 for multipart upload");
-            assert_eq!(keys[keys.len() - 1], keys.len() - 1, "Missing last part for multipart upload");
-
-            for key in keys {
-                let buf = content.get(&key).unwrap();
-                file.write(buf.as_slice()).map_err(to_error)?;
-            }
-
-            file.close().map_err(to_error)?;
-
-            Ok(())
-        })
-        .await
-        .map_err(to_io_error)
+        Ok(())
     }
 }
 
@@ -193,10 +264,15 @@ impl ObjectStore for HadoopFileSystem {
         let upload = HdfsMultiPartUpload {
             location: location.clone(),
             hdfs: self.hdfs.clone(),
-            content: Arc::new(Mutex::new(HashMap::new())),
+            content: Arc::new(Mutex::new(Vec::new())),
+            first_unwritten_idx: Arc::new(Mutex::new(0)),
+            file_created: Arc::new(Mutex::new(false)),
         };
 
-        Ok((MultipartId::default(), Box::new(CloudMultiPartUpload::new(upload, 8))))
+        Ok((
+            MultipartId::default(),
+            Box::new(CloudMultiPartUpload::new(upload, 8)),
+        ))
     }
 
     async fn abort_multipart(&self, _location: &Path, _multipart_id: &MultipartId) -> Result<()> {
@@ -615,19 +691,22 @@ fn to_io_error(err: Error) -> std::io::Error {
         Error::Generic { store, source } => {
             std::io::Error::new(std::io::ErrorKind::Other, format!("{}: {}", store, source))
         }
-        Error::NotFound { path, source } => {
-            std::io::Error::new(std::io::ErrorKind::NotFound, format!("{}: {}", path, source))
-        }
-        Error::AlreadyExists { path, source } => {
-            std::io::Error::new(std::io::ErrorKind::AlreadyExists, format!("{}: {}", path, source))
-        }
+        Error::NotFound { path, source } => std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("{}: {}", path, source),
+        ),
+        Error::AlreadyExists { path, source } => std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            format!("{}: {}", path, source),
+        ),
         Error::InvalidPath { source } => {
             std::io::Error::new(std::io::ErrorKind::InvalidInput, source)
         }
 
-        _ => {
-            std::io::Error::new(std::io::ErrorKind::Other, format!("HadoopFileSystem: {}", err))
-        }
+        _ => std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("HadoopFileSystem: {}", err),
+        ),
     }
 }
 
