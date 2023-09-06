@@ -156,11 +156,20 @@ impl ObjectStore for HadoopFileSystem {
 
             let to_read = file_status.len();
             let mut buf = vec![0; to_read];
-            let read = file.read(buf.as_mut_slice()).map_err(to_error)?;
+            let mut total_read = 0;
+
+            while total_read < to_read {
+                let read = file.read(&mut buf[total_read..]).map_err(to_error)?;
+                if read == 0 {
+                    break;
+                }
+                total_read += read as usize;
+            }
+
             assert_eq!(
-                to_read as i32, read,
+                to_read as i32, total_read as i32,
                 "Read path {} with expected size {} and actual size {}",
-                &location, to_read, read
+                &location, to_read, total_read
             );
 
             file.close().map_err(to_error)?;
