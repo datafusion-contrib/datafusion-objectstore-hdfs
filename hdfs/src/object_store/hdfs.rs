@@ -454,7 +454,7 @@ pub fn convert_metadata(file: FileStatus, prefix: &str) -> ObjectMeta {
 }
 
 fn last_modified(file: &FileStatus) -> DateTime<Utc> {
-    DateTime::<Utc>::from_utc(
+    DateTime::<Utc>::from_naive_utc_and_offset(
         NaiveDateTime::from_timestamp_opt(file.last_modified(), 0).unwrap(),
         Utc,
     )
