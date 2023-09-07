@@ -31,13 +31,13 @@ hdfs = ["fs-hdfs"]
 hdfs3 = ["fs-hdfs3"]
 
 [dependencies]
-datafusion = { git = "https://github.com/apache/arrow-datafusion.git", rev = "4e2a72f6c7109d40a4986e3d05360524be078dd4" }
+datafusion = { version = "30.0.0" }
 fs-hdfs = { version = "^0.1.12", optional = true }
 fs-hdfs3 = { version = "^0.1.12", optional = true }
 uuid = { version = "1.0", features = ["v4"] }
 
 [dev-dependencies]
-arrow = { version = "43.0.0", features = ["prettyprint", "dyn_cmp_dict"] }
+arrow = { version = "45.0.0", features = ["prettyprint", "dyn_cmp_dict"] }
 datafusion-objectstore-hdfs = { path = "../hdfs" }
 futures = "0.3"
 object_store = "0.6.1"
