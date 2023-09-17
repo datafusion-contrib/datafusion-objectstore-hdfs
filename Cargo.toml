@@ -21,3 +21,6 @@ members = [
     "hdfs-examples",
     "hdfs-testing",
 ]
+
+[patch.crates-io]
+object_store = { git = "https://github.com/apache/arrow-rs.git", rev = "bff6155d38e19bfe62a776731b78b435560f2c8e" }
