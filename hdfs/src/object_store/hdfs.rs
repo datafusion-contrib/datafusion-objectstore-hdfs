@@ -29,10 +29,7 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use futures::{stream::BoxStream, StreamExt, TryStreamExt};
 use hdfs::hdfs::{get_hdfs_by_full_path, FileStatus, HdfsErr, HdfsFile, HdfsFs};
 use hdfs::walkdir::HdfsWalkDir;
-use object_store::{
-    path::{self, Path},
-    Error, GetOptions, GetResult, ListResult, MultipartId, ObjectMeta, ObjectStore, Result,
-};
+use object_store::{path::{self, Path}, Error, GetOptions, GetResult, ListResult, MultipartId, ObjectMeta, ObjectStore, Result, GetResultPayload};
 use tokio::io::AsyncWrite;
 
 /// scheme for HDFS File System
@@ -151,10 +148,11 @@ impl ObjectStore for HadoopFileSystem {
         let hdfs = self.hdfs.clone();
         let location = HadoopFileSystem::path_to_filesystem(location);
 
-        let blob: Bytes = maybe_spawn_blocking(move || {
+        maybe_spawn_blocking(move || {
             let file = hdfs.open(&location).map_err(to_error)?;
 
             let file_status = file.get_file_status().map_err(to_error)?;
+            let meta = convert_metadata(file_status.clone(), location.as_str());
 
             let to_read = file_status.len();
             let mut buf = vec![0; to_read];
@@ -167,13 +165,15 @@ impl ObjectStore for HadoopFileSystem {
 
             file.close().map_err(to_error)?;
 
-            Ok(buf.into())
-        })
-        .await?;
+            let blob = buf.into();
 
-        Ok(GetResult::Stream(
-            futures::stream::once(async move { Ok(blob) }).boxed(),
-        ))
+            Ok(GetResult {
+                payload: GetResultPayload::Stream(futures::stream::once(async move { Ok(blob) }).boxed()),
+                range: (0..meta.size),
+                meta,
+            })
+
+        }).await
     }
 
     async fn get_opts(&self, location: &Path, options: GetOptions) -> Result<GetResult> {
@@ -187,10 +187,11 @@ impl ObjectStore for HadoopFileSystem {
         let hdfs = self.hdfs.clone();
         let location = HadoopFileSystem::path_to_filesystem(location);
 
-        let blob: Bytes = maybe_spawn_blocking(move || {
+        maybe_spawn_blocking(move || {
             let file = hdfs.open(&location).map_err(to_error)?;
 
             let file_status = file.get_file_status().map_err(to_error)?;
+            let meta = convert_metadata(file_status.clone(), location.as_str());
 
             if options.if_unmodified_since.is_some() || options.if_modified_since.is_some() {
                 check_modified(&options, &location, last_modified(&file_status))?;
@@ -209,13 +210,13 @@ impl ObjectStore for HadoopFileSystem {
 
             file.close().map_err(to_error)?;
 
-            Ok(buf)
+            Ok(GetResult {
+                payload: GetResultPayload::Stream(futures::stream::once(async move { Ok(buf) }).boxed()),
+                meta,
+                range,
+            })
         })
-        .await?;
-
-        Ok(GetResult::Stream(
-            futures::stream::once(async move { Ok(blob) }).boxed(),
-        ))
+        .await
     }
 
     async fn get_range(&self, location: &Path, range: Range<usize>) -> Result<Bytes> {
