@@ -14,11 +14,11 @@ hdfs = ["ballista/hdfs", "datafusion-objectstore-hdfs-testing/hdfs"]
 hdfs3 = ["ballista/hdfs3", "datafusion-objectstore-hdfs-testing/hdfs3"]
 
 [dependencies]
-ballista = { git = "https://github.com/apache/arrow-ballista.git", rev = "948d0777f972144cc242d0398fd61fadf34cec73", features = ["standalone"] }
-datafusion = "30.0.0"
+ballista = { git = "https://github.com/apache/arrow-ballista.git", rev = "90b5cc748c5f92762e9ede52d6908d62823f9563", features = ["standalone"] }
+datafusion = "34.0.0"
 datafusion-objectstore-hdfs-testing = { path = "../hdfs-testing", default-features = false }
 futures = "0.3"
 num_cpus = "1.13.0"
 prost = "0.11"
 tokio = { version = "1.18", features = ["macros", "rt", "rt-multi-thread", "sync", "parking_lot"] }
-tonic = "0.9"
+tonic = "0.10"

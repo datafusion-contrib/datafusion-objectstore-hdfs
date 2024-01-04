@@ -29,10 +29,7 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use futures::{stream::BoxStream, StreamExt, TryStreamExt};
 use hdfs::hdfs::{get_hdfs_by_full_path, FileStatus, HdfsErr, HdfsFile, HdfsFs};
 use hdfs::walkdir::HdfsWalkDir;
-use object_store::{
-    path::{self, Path},
-    Error, GetOptions, GetResult, ListResult, MultipartId, ObjectMeta, ObjectStore, Result,
-};
+use object_store::{path::{self, Path}, Error, GetOptions, GetResult, ListResult, MultipartId, ObjectMeta, ObjectStore, Result, PutResult, PutOptions, GetResultPayload};
 use tokio::io::AsyncWrite;
 
 /// scheme for HDFS File System
@@ -115,7 +112,7 @@ impl Display for HadoopFileSystem {
 impl ObjectStore for HadoopFileSystem {
     // Current implementation is very simple due to missing configs,
     // like whether able to overwrite, whether able to create parent directories, etc
-    async fn put(&self, location: &Path, bytes: Bytes) -> Result<()> {
+    async fn put(&self, location: &Path, bytes: Bytes) -> Result<PutResult> {
         let hdfs = self.hdfs.clone();
         let location = HadoopFileSystem::path_to_filesystem(location);
 
@@ -133,7 +130,17 @@ impl ObjectStore for HadoopFileSystem {
 
             Ok(())
         })
-        .await
+            .await?;
+        return Ok(
+            PutResult {
+                e_tag: None,
+                version: None,
+            }
+        );
+    }
+
+    async fn put_opts(&self, _location: &Path, _bytes: Bytes, _opts: PutOptions) -> Result<PutResult> {
+        todo!()
     }
 
     async fn put_multipart(
@@ -169,11 +176,22 @@ impl ObjectStore for HadoopFileSystem {
 
             Ok(buf.into())
         })
-        .await?;
+            .await?;
 
-        Ok(GetResult::Stream(
-            futures::stream::once(async move { Ok(blob) }).boxed(),
-        ))
+        Ok(GetResult {
+            payload: GetResultPayload::Stream(
+                futures::stream::once(async move { Ok(blob) }).boxed(),
+            ),
+            //todo setting these
+            meta: ObjectMeta {
+                location: Default::default(),
+                last_modified: Default::default(),
+                size: 0,
+                e_tag: None,
+                version: None,
+            },
+            range: Default::default(),
+        })
     }
 
     async fn get_opts(&self, location: &Path, options: GetOptions) -> Result<GetResult> {
@@ -211,11 +229,22 @@ impl ObjectStore for HadoopFileSystem {
 
             Ok(buf)
         })
-        .await?;
+            .await?;
 
-        Ok(GetResult::Stream(
-            futures::stream::once(async move { Ok(blob) }).boxed(),
-        ))
+        Ok(GetResult {
+            payload: GetResultPayload::Stream(
+                futures::stream::once(async move { Ok(blob) }).boxed(),
+            ),
+            //todo setting these
+            meta: ObjectMeta {
+                location: Default::default(),
+                last_modified: Default::default(),
+                size: 0,
+                e_tag: None,
+                version: None,
+            },
+            range: Default::default(),
+        })
     }
 
     async fn get_range(&self, location: &Path, range: Range<usize>) -> Result<Bytes> {
@@ -229,7 +258,7 @@ impl ObjectStore for HadoopFileSystem {
 
             Ok(buf)
         })
-        .await
+            .await
     }
 
     async fn get_ranges(&self, location: &Path, ranges: &[Range<usize>]) -> Result<Vec<Bytes>> {
@@ -238,7 +267,7 @@ impl ObjectStore for HadoopFileSystem {
             |range| self.get_range(location, range),
             HDFS_COALESCE_DEFAULT,
         )
-        .await
+            .await
     }
 
     async fn head(&self, location: &Path) -> Result<ObjectMeta> {
@@ -250,7 +279,7 @@ impl ObjectStore for HadoopFileSystem {
             let file_status = hdfs.get_file_status(&location).map_err(to_error)?;
             Ok(convert_metadata(file_status, &hdfs_root))
         })
-        .await
+            .await
     }
 
     async fn delete(&self, location: &Path) -> Result<()> {
@@ -262,12 +291,12 @@ impl ObjectStore for HadoopFileSystem {
 
             Ok(())
         })
-        .await
+            .await
     }
 
     /// List all of the leaf files under the prefix path.
     /// It will recursively search leaf files whose depth is larger than 1
-    async fn list(&self, prefix: Option<&Path>) -> Result<BoxStream<'_, Result<ObjectMeta>>> {
+    fn list(&self, prefix: Option<&Path>) -> BoxStream<'_, Result<ObjectMeta>> {
         let default_path = Path::from(self.get_path_root());
         let prefix = prefix.unwrap_or(&default_path);
         let hdfs = self.hdfs.clone();
@@ -290,7 +319,7 @@ impl ObjectStore for HadoopFileSystem {
         // If no tokio context, return iterator directly as no
         // need to perform chunked spawn_blocking reads
         if tokio::runtime::Handle::try_current().is_err() {
-            return Ok(futures::stream::iter(s).boxed());
+            return futures::stream::iter(s).boxed();
         }
 
         // Otherwise list in batches of CHUNK_SIZE
@@ -308,7 +337,7 @@ impl ObjectStore for HadoopFileSystem {
                     }
                     (s, buffer)
                 })
-                .await?;
+                    .await?;
             }
 
             match buffer.pop_front() {
@@ -318,7 +347,7 @@ impl ObjectStore for HadoopFileSystem {
             }
         });
 
-        Ok(stream.boxed())
+        stream.boxed()
     }
 
     /// List files and directories directly under the prefix path.
@@ -368,7 +397,7 @@ impl ObjectStore for HadoopFileSystem {
                 objects,
             })
         })
-        .await
+            .await
     }
 
     /// Copy an object from one path to another.
@@ -396,7 +425,7 @@ impl ObjectStore for HadoopFileSystem {
 
             Ok(())
         })
-        .await
+            .await
     }
 
     /// It's only allowed for the same HDFS
@@ -410,7 +439,7 @@ impl ObjectStore for HadoopFileSystem {
 
             Ok(())
         })
-        .await
+            .await
     }
 
     /// Copy an object from one path to another, only if destination is empty.
@@ -433,7 +462,7 @@ impl ObjectStore for HadoopFileSystem {
 
             Ok(())
         })
-        .await
+            .await
     }
 }
 
@@ -450,6 +479,7 @@ pub fn convert_metadata(file: FileStatus, prefix: &str) -> ObjectMeta {
         last_modified: last_modified(&file),
         size: file.len(),
         e_tag: None,
+        version: None,
     }
 }
 
@@ -514,9 +544,9 @@ pub async fn coalesce_ranges<F, Fut>(
     fetch: F,
     coalesce: usize,
 ) -> Result<Vec<Bytes>>
-where
-    F: FnMut(Range<usize>) -> Fut,
-    Fut: std::future::Future<Output = Result<Bytes>>,
+    where
+        F: FnMut(Range<usize>) -> Fut,
+        Fut: std::future::Future<Output=Result<Bytes>>,
 {
     let fetch_ranges = merge_ranges(ranges, coalesce);
 
@@ -542,9 +572,9 @@ where
 
 /// Takes a function and spawns it to a tokio blocking pool if available
 pub async fn maybe_spawn_blocking<F, T>(f: F) -> Result<T>
-where
-    F: FnOnce() -> Result<T> + Send + 'static,
-    T: Send + 'static,
+    where
+        F: FnOnce() -> Result<T> + Send + 'static,
+        T: Send + 'static,
 {
     #[cfg(feature = "try_spawn_blocking")]
     match tokio::runtime::Handle::try_current() {
@@ -574,10 +604,10 @@ fn merge_ranges(ranges: &[Range<usize>], coalesce: usize) -> Vec<Range<usize>> {
 
         while end_idx != ranges.len()
             && ranges[end_idx]
-                .start
-                .checked_sub(range_end)
-                .map(|delta| delta <= coalesce)
-                .unwrap_or(true)
+            .start
+            .checked_sub(range_end)
+            .map(|delta| delta <= coalesce)
+            .unwrap_or(true)
         {
             range_end = range_end.max(ranges[end_idx].end);
             end_idx += 1;
@@ -640,8 +670,8 @@ mod tests {
                 },
                 coalesce,
             )
-            .await
-            .unwrap();
+                .await
+                .unwrap();
 
             assert_eq!(ranges.len(), coalesced.len());
             for (range, bytes) in ranges.iter().zip(coalesced) {
