@@ -29,7 +29,11 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use futures::{stream::BoxStream, StreamExt, TryStreamExt};
 use hdfs::hdfs::{get_hdfs_by_full_path, FileStatus, HdfsErr, HdfsFile, HdfsFs};
 use hdfs::walkdir::HdfsWalkDir;
-use object_store::{path::{self, Path}, Error, GetOptions, GetResult, ListResult, MultipartId, ObjectMeta, ObjectStore, Result, PutResult, PutOptions, GetResultPayload};
+use object_store::{
+    path::{self, Path},
+    Error, GetOptions, GetResult, GetResultPayload, ListResult, MultipartId, ObjectMeta,
+    ObjectStore, PutOptions, PutResult, Result,
+};
 use tokio::io::AsyncWrite;
 
 /// scheme for HDFS File System
@@ -131,15 +135,18 @@ impl ObjectStore for HadoopFileSystem {
             Ok(())
         })
             .await?;
-        return Ok(
-            PutResult {
-                e_tag: None,
-                version: None,
-            }
-        );
+        return Ok(PutResult {
+            e_tag: None,
+            version: None,
+        });
     }
 
-    async fn put_opts(&self, _location: &Path, _bytes: Bytes, _opts: PutOptions) -> Result<PutResult> {
+    async fn put_opts(
+        &self,
+        _location: &Path,
+        _bytes: Bytes,
+        _opts: PutOptions,
+    ) -> Result<PutResult> {
         todo!()
     }
 
