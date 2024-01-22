@@ -24,4 +24,4 @@ members = [
 ]
 
 [patch.crates-io]
-object_store = { git = "https://github.com/yjshen/arrow-rs.git", branch = "object_store_hdfs_061" }
+object_store = { git = "https://github.com/spaceandtimelabs/arrow-rs.git", branch = "object_store_hdfs_061" }
