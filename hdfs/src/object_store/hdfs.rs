@@ -104,6 +104,19 @@ impl HadoopFileSystem {
         );
         Ok(buf.into())
     }
+
+    /// Delete a directory recursively
+    pub async fn delete_dir(&self, location: &Path) -> Result<()> {
+        let hdfs = self.hdfs.clone();
+        let location = HadoopFileSystem::path_to_filesystem(location);
+
+        maybe_spawn_blocking(move || {
+            hdfs.delete(&location, true).map_err(to_error)?;
+
+            Ok(())
+        })
+        .await
+    }
 }
 
 impl Display for HadoopFileSystem {
@@ -166,6 +179,10 @@ impl CloudMultiPartUploadImpl for HdfsMultiPartUpload {
 
 #[async_trait]
 impl ObjectStore for HadoopFileSystem {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     // Current implementation is very simple due to missing configs,
     // like whether able to overwrite, whether able to create parent directories, etc
     async fn put(&self, location: &Path, bytes: Bytes) -> Result<()> {
