@@ -111,8 +111,9 @@ impl HadoopFileSystem {
         let location = HadoopFileSystem::path_to_filesystem(location);
 
         maybe_spawn_blocking(move || {
-            hdfs.delete(&location, true).map_err(to_error)?;
-
+            if hdfs.exist(&location) {
+                hdfs.delete(&location, true).map_err(to_error)?;
+            }
             Ok(())
         })
         .await
