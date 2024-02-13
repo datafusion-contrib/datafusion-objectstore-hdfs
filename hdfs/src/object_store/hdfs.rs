@@ -17,11 +17,11 @@
 
 //! Object store that represents the HDFS File System.
 
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::fmt::{Display, Formatter};
 use std::ops::Range;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -29,10 +29,11 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use futures::{stream::BoxStream, StreamExt, TryStreamExt};
 use hdfs::hdfs::{get_hdfs_by_full_path, FileStatus, HdfsErr, HdfsFile, HdfsFs};
 use hdfs::walkdir::HdfsWalkDir;
+use object_store::multipart::{PartId, PutPart, WriteMultiPart};
 use object_store::{
     path::{self, Path},
-    Error, GetOptions, GetResult, GetResultPayload, ListResult, MultipartId, ObjectMeta,
-    ObjectStore, PutOptions, PutResult, Result,
+    Error, GetOptions, GetRange, GetResult, GetResultPayload, ListResult, MultipartId, ObjectMeta,
+    ObjectStore, PutMode, PutOptions, PutResult, Result,
 };
 use tokio::io::AsyncWrite;
 
@@ -90,18 +91,23 @@ impl HadoopFileSystem {
     fn read_range(range: &Range<usize>, file: &HdfsFile) -> Result<Bytes> {
         let to_read = range.end - range.start;
         let mut buf = vec![0; to_read];
-        let read = file
-            .read_with_pos(range.start as i64, buf.as_mut_slice())
-            .map_err(to_error)?;
-        assert_eq!(
-            to_read as i32,
-            read,
-            "Read path {} from {} with expected size {} and actual size {}",
-            file.path(),
-            range.start,
-            to_read,
-            read
-        );
+        let mut bytes_read = 0;
+
+        while bytes_read < to_read {
+            match file.read_with_pos((range.start + bytes_read) as i64, &mut buf[bytes_read..]) {
+                Ok(read) => {
+                    if read == 0 {
+                        let bytes_remaining = to_read - bytes_read;
+                        return Err(to_error(HdfsErr::Generic(format!(
+                            "Reached end of file [{file:?}] before reading last {bytes_remaining} bytes for {range:?}",
+                        ))));
+                    }
+                    bytes_read += read as usize;
+                }
+                Err(e) => return Err(to_error(e)),
+            }
+        }
+
         Ok(buf.into())
     }
 }
@@ -112,16 +118,79 @@ impl Display for HadoopFileSystem {
     }
 }
 
+struct HdfsMultiPartUpload {
+    location: Path,
+    hdfs: Arc<HdfsFs>,
+    content: Arc<Mutex<HashMap<usize, Vec<u8>>>>,
+}
+
+#[async_trait]
+impl PutPart for HdfsMultiPartUpload {
+    async fn put_part(&self, buf: Vec<u8>, part_idx: usize) -> Result<PartId> {
+        let mut content = self.content.lock().unwrap();
+        content.insert(part_idx, buf);
+
+        Ok(PartId {
+            content_id: part_idx.to_string(),
+        })
+    }
+
+    async fn complete(&self, _completed_parts: Vec<PartId>) -> Result<()> {
+        let hdfs = self.hdfs.clone();
+        let location = HadoopFileSystem::path_to_filesystem(&self.location.clone());
+        let content = self.content.clone();
+
+        maybe_spawn_blocking(move || {
+            let file = match hdfs.create_with_params(&location, true, 0, 3, 0) {
+                Ok(f) => f,
+                Err(e) => {
+                    return Err(to_error(e));
+                }
+            };
+
+            let content = content.lock().unwrap();
+            // sort by hash key and put into file
+            let mut keys: Vec<usize> = content.keys().cloned().collect();
+            keys.sort();
+
+            assert_eq!(keys[0], 0, "Missing part 0 for multipart upload");
+            assert_eq!(
+                keys[keys.len() - 1],
+                keys.len() - 1,
+                "Missing last part for multipart upload"
+            );
+
+            for key in keys {
+                let buf = content.get(&key).unwrap();
+                file.write(buf.as_slice()).map_err(to_error)?;
+            }
+
+            file.close().map_err(to_error)?;
+
+            Ok(())
+        })
+        .await
+    }
+}
+
 #[async_trait]
 impl ObjectStore for HadoopFileSystem {
-    // Current implementation is very simple due to missing configs,
-    // like whether able to overwrite, whether able to create parent directories, etc
-    async fn put(&self, location: &Path, bytes: Bytes) -> Result<PutResult> {
+    async fn put_opts(&self, location: &Path, bytes: Bytes, opts: PutOptions) -> Result<PutResult> {
+        let overwrite = match opts.mode {
+            PutMode::Create => false,
+            PutMode::Overwrite => true,
+            PutMode::Update(_) => {
+                return Err(Error::NotSupported {
+                    source: "Update mode not supported".to_string().into(),
+                })
+            }
+        };
+
         let hdfs = self.hdfs.clone();
         let location = HadoopFileSystem::path_to_filesystem(location);
 
         maybe_spawn_blocking(move || {
-            let file = match hdfs.create_with_overwrite(&location, true) {
+            let file = match hdfs.create_with_params(&location, overwrite, 0, 3, 0) {
                 Ok(f) => f,
                 Err(e) => {
                     return Err(to_error(e));
@@ -141,65 +210,21 @@ impl ObjectStore for HadoopFileSystem {
         });
     }
 
-    async fn put_opts(
-        &self,
-        _location: &Path,
-        _bytes: Bytes,
-        _opts: PutOptions,
-    ) -> Result<PutResult> {
-        todo!()
-    }
-
     async fn put_multipart(
         &self,
-        _location: &Path,
+        location: &Path,
     ) -> Result<(MultipartId, Box<dyn AsyncWrite + Unpin + Send>)> {
-        todo!()
+        let inner = HdfsMultiPartUpload {
+            location: location.to_owned(),
+            hdfs: self.hdfs.clone(),
+            content: Arc::new(Mutex::new(HashMap::new())),
+        };
+        Ok((String::new(), Box::new(WriteMultiPart::new(inner, 8))))
     }
 
     async fn abort_multipart(&self, _location: &Path, _multipart_id: &MultipartId) -> Result<()> {
-        todo!()
-    }
-
-    async fn get(&self, location: &Path) -> Result<GetResult> {
-        let hdfs = self.hdfs.clone();
-        let hdfs_root = self.hdfs.url().to_owned();
-        let location = HadoopFileSystem::path_to_filesystem(location);
-
-        let (blob, object_metadata, range) = maybe_spawn_blocking(move || {
-            let file = hdfs.open(&location).map_err(to_error)?;
-
-            let file_status = file.get_file_status().map_err(to_error)?;
-
-            let to_read = file_status.len();
-            let mut buf = vec![0; to_read];
-            let read = file.read(buf.as_mut_slice()).map_err(to_error)?;
-            assert_eq!(
-                to_read as i32, read,
-                "Read path {} with expected size {} and actual size {}",
-                &location, to_read, read
-            );
-
-            file.close().map_err(to_error)?;
-
-            let object_metadata = convert_metadata(file_status, &hdfs_root);
-
-            let range = Range {
-                start: 0,
-                end: file_status.len(),
-            };
-
-            Ok((buf.into(), object_metadata, range))
-        })
-        .await?;
-
-        Ok(GetResult {
-            payload: GetResultPayload::Stream(
-                futures::stream::once(async move { Ok(blob) }).boxed(),
-            ),
-            meta: object_metadata,
-            range,
-        })
+        // Currently, the implementation doesn't put anything to HDFS until complete is called.
+        Ok(())
     }
 
     async fn get_opts(&self, location: &Path, options: GetOptions) -> Result<GetResult> {
@@ -223,20 +248,21 @@ impl ObjectStore for HadoopFileSystem {
                 check_modified(&options, &location, last_modified(&file_status))?;
             }
 
-            let range = if let Some(range) = options.range {
-                range
-            } else {
-                Range {
-                    start: 0,
-                    end: file_status.len(),
-                }
-            };
+            let file_size = file_status.len();
+            let range = options
+                .range
+                .map(|r| match r {
+                    GetRange::Bounded(range) => range,
+                    GetRange::Offset(offset) => offset..file_size,
+                    GetRange::Suffix(suffix) => file_size.saturating_sub(suffix)..file_size,
+                })
+                .unwrap_or(0..file_size);
 
             let buf = Self::read_range(&range, &file)?;
 
             file.close().map_err(to_error)?;
 
-            let object_meta = convert_metadata(file_status, &hdfs_root);
+            let object_meta = convert_metadata(&file_status, &hdfs_root);
 
             Ok((buf, object_meta, range))
         })
@@ -281,7 +307,7 @@ impl ObjectStore for HadoopFileSystem {
 
         maybe_spawn_blocking(move || {
             let file_status = hdfs.get_file_status(&location).map_err(to_error)?;
-            Ok(convert_metadata(file_status, &hdfs_root))
+            Ok(convert_metadata(&file_status, &hdfs_root))
         })
         .await
     }
@@ -316,7 +342,7 @@ impl ObjectStore for HadoopFileSystem {
                     Ok(None) => None,
                     Ok(entry @ Some(_)) => entry
                         .filter(|dir_entry| dir_entry.is_file())
-                        .map(|entry| Ok(convert_metadata(entry, &hdfs_root))),
+                        .map(|entry| Ok(convert_metadata(&entry, &hdfs_root))),
                 }
             });
 
@@ -391,7 +417,7 @@ impl ObjectStore for HadoopFileSystem {
                     if is_directory {
                         common_prefixes.insert(prefix.child(common_prefix));
                     } else {
-                        objects.push(convert_metadata(entry, &hdfs_root));
+                        objects.push(convert_metadata(&entry, &hdfs_root));
                     }
                 }
             }
@@ -477,7 +503,7 @@ pub fn get_path(full_path: &str, prefix: &str) -> Path {
 }
 
 /// Convert HDFS file status to ObjectMeta
-pub fn convert_metadata(file: FileStatus, prefix: &str) -> ObjectMeta {
+pub fn convert_metadata(file: &FileStatus, prefix: &str) -> ObjectMeta {
     ObjectMeta {
         location: get_path(file.name(), prefix),
         last_modified: last_modified(&file),

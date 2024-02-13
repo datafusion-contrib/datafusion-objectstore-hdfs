@@ -21,3 +21,4 @@ members = [
     "hdfs-examples",
     "hdfs-testing",
 ]
+resolver = "2"
