@@ -134,7 +134,7 @@ impl ObjectStore for HadoopFileSystem {
 
             Ok(())
         })
-            .await?;
+        .await?;
         return Ok(PutResult {
             e_tag: None,
             version: None,
@@ -163,9 +163,10 @@ impl ObjectStore for HadoopFileSystem {
 
     async fn get(&self, location: &Path) -> Result<GetResult> {
         let hdfs = self.hdfs.clone();
+        let hdfs_root = self.hdfs.url().to_owned();
         let location = HadoopFileSystem::path_to_filesystem(location);
 
-        let blob: Bytes = maybe_spawn_blocking(move || {
+        let (blob, object_metadata, range) = maybe_spawn_blocking(move || {
             let file = hdfs.open(&location).map_err(to_error)?;
 
             let file_status = file.get_file_status().map_err(to_error)?;
@@ -181,23 +182,23 @@ impl ObjectStore for HadoopFileSystem {
 
             file.close().map_err(to_error)?;
 
-            Ok(buf.into())
+            let object_metadata = convert_metadata(file_status, &hdfs_root);
+
+            let range = Range {
+                start: 0,
+                end: file_status.len(),
+            };
+
+            Ok((buf.into(), object_metadata, range))
         })
-            .await?;
+        .await?;
 
         Ok(GetResult {
             payload: GetResultPayload::Stream(
                 futures::stream::once(async move { Ok(blob) }).boxed(),
             ),
-            //todo setting these
-            meta: ObjectMeta {
-                location: Default::default(),
-                last_modified: Default::default(),
-                size: 0,
-                e_tag: None,
-                version: None,
-            },
-            range: Default::default(),
+            meta: object_metadata,
+            range,
         })
     }
 
@@ -210,9 +211,10 @@ impl ObjectStore for HadoopFileSystem {
         }
 
         let hdfs = self.hdfs.clone();
+        let hdfs_root = self.hdfs.url().to_owned();
         let location = HadoopFileSystem::path_to_filesystem(location);
 
-        let blob: Bytes = maybe_spawn_blocking(move || {
+        let (blob, object_metadata, range) = maybe_spawn_blocking(move || {
             let file = hdfs.open(&location).map_err(to_error)?;
 
             let file_status = file.get_file_status().map_err(to_error)?;
@@ -234,23 +236,18 @@ impl ObjectStore for HadoopFileSystem {
 
             file.close().map_err(to_error)?;
 
-            Ok(buf)
+            let object_meta = convert_metadata(file_status, &hdfs_root);
+
+            Ok((buf, object_meta, range))
         })
-            .await?;
+        .await?;
 
         Ok(GetResult {
             payload: GetResultPayload::Stream(
                 futures::stream::once(async move { Ok(blob) }).boxed(),
             ),
-            //todo setting these
-            meta: ObjectMeta {
-                location: Default::default(),
-                last_modified: Default::default(),
-                size: 0,
-                e_tag: None,
-                version: None,
-            },
-            range: Default::default(),
+            meta: object_metadata,
+            range,
         })
     }
 
@@ -265,7 +262,7 @@ impl ObjectStore for HadoopFileSystem {
 
             Ok(buf)
         })
-            .await
+        .await
     }
 
     async fn get_ranges(&self, location: &Path, ranges: &[Range<usize>]) -> Result<Vec<Bytes>> {
@@ -274,7 +271,7 @@ impl ObjectStore for HadoopFileSystem {
             |range| self.get_range(location, range),
             HDFS_COALESCE_DEFAULT,
         )
-            .await
+        .await
     }
 
     async fn head(&self, location: &Path) -> Result<ObjectMeta> {
@@ -286,7 +283,7 @@ impl ObjectStore for HadoopFileSystem {
             let file_status = hdfs.get_file_status(&location).map_err(to_error)?;
             Ok(convert_metadata(file_status, &hdfs_root))
         })
-            .await
+        .await
     }
 
     async fn delete(&self, location: &Path) -> Result<()> {
@@ -298,7 +295,7 @@ impl ObjectStore for HadoopFileSystem {
 
             Ok(())
         })
-            .await
+        .await
     }
 
     /// List all of the leaf files under the prefix path.
@@ -344,7 +341,7 @@ impl ObjectStore for HadoopFileSystem {
                     }
                     (s, buffer)
                 })
-                    .await?;
+                .await?;
             }
 
             match buffer.pop_front() {
@@ -404,7 +401,7 @@ impl ObjectStore for HadoopFileSystem {
                 objects,
             })
         })
-            .await
+        .await
     }
 
     /// Copy an object from one path to another.
@@ -432,7 +429,7 @@ impl ObjectStore for HadoopFileSystem {
 
             Ok(())
         })
-            .await
+        .await
     }
 
     /// It's only allowed for the same HDFS
@@ -446,7 +443,7 @@ impl ObjectStore for HadoopFileSystem {
 
             Ok(())
         })
-            .await
+        .await
     }
 
     /// Copy an object from one path to another, only if destination is empty.
@@ -469,7 +466,7 @@ impl ObjectStore for HadoopFileSystem {
 
             Ok(())
         })
-            .await
+        .await
     }
 }
 
@@ -551,9 +548,9 @@ pub async fn coalesce_ranges<F, Fut>(
     fetch: F,
     coalesce: usize,
 ) -> Result<Vec<Bytes>>
-    where
-        F: FnMut(Range<usize>) -> Fut,
-        Fut: std::future::Future<Output=Result<Bytes>>,
+where
+    F: FnMut(Range<usize>) -> Fut,
+    Fut: std::future::Future<Output = Result<Bytes>>,
 {
     let fetch_ranges = merge_ranges(ranges, coalesce);
 
@@ -579,9 +576,9 @@ pub async fn coalesce_ranges<F, Fut>(
 
 /// Takes a function and spawns it to a tokio blocking pool if available
 pub async fn maybe_spawn_blocking<F, T>(f: F) -> Result<T>
-    where
-        F: FnOnce() -> Result<T> + Send + 'static,
-        T: Send + 'static,
+where
+    F: FnOnce() -> Result<T> + Send + 'static,
+    T: Send + 'static,
 {
     #[cfg(feature = "try_spawn_blocking")]
     match tokio::runtime::Handle::try_current() {
@@ -611,10 +608,10 @@ fn merge_ranges(ranges: &[Range<usize>], coalesce: usize) -> Vec<Range<usize>> {
 
         while end_idx != ranges.len()
             && ranges[end_idx]
-            .start
-            .checked_sub(range_end)
-            .map(|delta| delta <= coalesce)
-            .unwrap_or(true)
+                .start
+                .checked_sub(range_end)
+                .map(|delta| delta <= coalesce)
+                .unwrap_or(true)
         {
             range_end = range_end.max(ranges[end_idx].end);
             end_idx += 1;
@@ -677,8 +674,8 @@ mod tests {
                 },
                 coalesce,
             )
-                .await
-                .unwrap();
+            .await
+            .unwrap();
 
             assert_eq!(ranges.len(), coalesced.len());
             for (range, bytes) in ranges.iter().zip(coalesced) {
