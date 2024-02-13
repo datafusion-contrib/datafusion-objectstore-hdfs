@@ -262,7 +262,7 @@ impl ObjectStore for HadoopFileSystem {
 
             file.close().map_err(to_error)?;
 
-            let object_meta = convert_metadata(&file_status, &hdfs_root);
+            let object_meta = convert_metadata(file_status, &hdfs_root);
 
             Ok((buf, object_meta, range))
         })
@@ -307,7 +307,7 @@ impl ObjectStore for HadoopFileSystem {
 
         maybe_spawn_blocking(move || {
             let file_status = hdfs.get_file_status(&location).map_err(to_error)?;
-            Ok(convert_metadata(&file_status, &hdfs_root))
+            Ok(convert_metadata(file_status, &hdfs_root))
         })
         .await
     }
@@ -342,7 +342,7 @@ impl ObjectStore for HadoopFileSystem {
                     Ok(None) => None,
                     Ok(entry @ Some(_)) => entry
                         .filter(|dir_entry| dir_entry.is_file())
-                        .map(|entry| Ok(convert_metadata(&entry, &hdfs_root))),
+                        .map(|entry| Ok(convert_metadata(entry, &hdfs_root))),
                 }
             });
 
@@ -417,7 +417,7 @@ impl ObjectStore for HadoopFileSystem {
                     if is_directory {
                         common_prefixes.insert(prefix.child(common_prefix));
                     } else {
-                        objects.push(convert_metadata(&entry, &hdfs_root));
+                        objects.push(convert_metadata(entry, &hdfs_root));
                     }
                 }
             }
@@ -503,7 +503,7 @@ pub fn get_path(full_path: &str, prefix: &str) -> Path {
 }
 
 /// Convert HDFS file status to ObjectMeta
-pub fn convert_metadata(file: &FileStatus, prefix: &str) -> ObjectMeta {
+pub fn convert_metadata(file: FileStatus, prefix: &str) -> ObjectMeta {
     ObjectMeta {
         location: get_path(file.name(), prefix),
         last_modified: last_modified(&file),
